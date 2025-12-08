@@ -1,7 +1,11 @@
 package main
 
-const htmlPage = `
-<!DOCTYPE html>
+// 修复说明：
+// 1. 之前代码中的 \\n 导致 JS 解析为字面量字符 "\n" 而非换行符，致使 Markdown 渲染时所有内容挤在一行。
+//    现已全部替换为 \n，确保 JS 字符串中包含真正的换行符。
+// 2. 保留了 \x60 用于在 JS 字符串中表示反引号，避免与 Go 的 Raw String 冲突。
+
+const htmlPage = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -11,12 +15,13 @@ const htmlPage = `
         if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('.html')) {
             var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "/" + window.location.search;
             window.history.replaceState(null, null, newUrl);
-            window.location.reload(); 
-        }
+            window.location.reload();
+         }
     </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #2c3e50; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         .navbar { background: #34495e; padding: 0 20px; height: 50px; display: flex; align-items: center; border-bottom: 1px solid #1abc9c; flex-shrink: 0; }
@@ -60,7 +65,7 @@ const htmlPage = `
         .log-content { flex: 1; overflow-y: auto; padding: 10px; font-family: 'Consolas', monospace; font-size: 12px; color: #dcdcdc; white-space: pre-wrap; word-break: break-all; }
         button { background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; transition: 0.2s; }
         button:hover { background: #3498db; } button:disabled { background: #95a5a6; cursor: not-allowed; opacity: 0.6; }
-        .btn-sm { padding: 4px 8px; font-size: 12px; } 
+        .btn-sm { padding: 4px 8px; font-size: 12px; }
         .btn-fix { background: #e67e22; } .btn-fix:hover { background: #d35400; }
         .btn-green { background: #27ae60; } .btn-green:hover { background: #219150; }
         .btn-orange { background: #e67e22; } .btn-orange:hover { background: #d35400; }
@@ -73,27 +78,34 @@ const htmlPage = `
         .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
         .about-table td { padding: 10px; }
         .about-table tr:not(:last-child) td { border-bottom: 1px solid #f0f0f0; }
-       .bs-header { padding: 10px 20px; background: #e9ecef; display: flex; gap: 5px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
-       .sub-tab-btn { background: #fff; color: #666; border: 1px solid #ddd; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px; }
-       .sub-tab-btn:hover { background: #f8f9fa; }
-       .sub-tab-btn.active { background: #2980b9; color: white; border-color: #2980b9; }
-       .sub-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; background: #fff; width: 100%; height: 100%; }
-       .sub-panel.active { display: flex; }
-       .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 100; display: none; }
+        .bs-header { padding: 10px 20px; background: #e9ecef; display: flex; gap: 5px; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+        .sub-tab-btn { background: #fff; color: #666; border: 1px solid #ddd; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+        .sub-tab-btn:hover { background: #f8f9fa; }
+        .sub-tab-btn.active { background: #2980b9; color: white; border-color: #2980b9; }
+        .sub-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; background: #fff; width: 100%; height: 100%; }
+        .sub-panel.active { display: flex; }
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 100; display: none; }
         .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); z-index: 101; width: 90%; max-width: 700px; display: none; max-height: 80vh; overflow-y: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; margin-bottom: 20px; }
         .modal-title { margin: 0; font-size: 1.25rem; }
         .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; }
         .modal-body { margin-bottom: 20px; }
         .modal-footer { border-top: 1px solid #dee2e6; padding-top: 15px; margin-top: 20px; text-align: right; }
-       .list-item, .hash-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #e9ecef; }
-       .iframe-container { flex: 1; width: 100%; height: 100%; border: none; display: block; }
-       .sql-table-container { overflow: auto; max-height: 400px; border: 1px solid #ddd; margin-top: 10px; }
-       .sql-table { width: 100%; border-collapse: collapse; font-size: 13px; font-family: Consolas, monospace; white-space: nowrap; }
-       .sql-table th { background: #f8f9fa; position: sticky; top: 0; border-bottom: 2px solid #ddd; padding: 8px; text-align: left; color: #333; }
-       .sql-table td { border-bottom: 1px solid #eee; padding: 6px 8px; color: #444; }
-       .sql-table tr:hover { background-color: #f1f1f1; }
-       .redis-key-cell { max-width: 450px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .list-item, .hash-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #e9ecef; }
+        .iframe-container { flex: 1; width: 100%; height: 100%; border: none; display: block; }
+        .sql-table-container { overflow: auto; max-height: 400px; border: 1px solid #ddd; margin-top: 10px; }
+        .sql-table { width: 100%; border-collapse: collapse; font-size: 13px; font-family: Consolas, monospace; white-space: nowrap; }
+        .sql-table th { background: #f8f9fa; position: sticky; top: 0; border-bottom: 2px solid #ddd; padding: 8px; text-align: left; color: #333; }
+        .sql-table td { border-bottom: 1px solid #eee; padding: 6px 8px; color: #444; }
+        .sql-table tr:hover { background-color: #f1f1f1; }
+        .redis-key-cell { max-width: 450px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #panel-help .container-box { max-width: 900px; }
+        #panel-help h1, #panel-help h2, #panel-help h3, #panel-help h4 { border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 24px; margin-bottom: 16px; }
+        #panel-help code { background-color: #f1f1f1; padding: 2px 5px; border-radius: 4px; font-family: Consolas, monospace; }
+        #panel-help pre { background-color: #2d2d2d; color: #f1f1f1; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        #panel-help pre code { background: none; padding: 0; }
+        #panel-help ul, #panel-help ol { line-height: 1.6; }
+        #panel-help blockquote { border-left: 4px solid #ccc; padding-left: 15px; color: #666; margin-left: 0; }
     </style>
 </head>
 <body>
@@ -106,6 +118,7 @@ const htmlPage = `
     <button class="tab-btn" onclick="switchTab('logs')">📜 日志查看</button>
     <button class="tab-btn" onclick="switchTab('baseservices')">⚙️ 基础服务</button>
     <button class="tab-btn" onclick="switchTab('about')">ℹ️ 关于</button>
+    <button class="tab-btn" onclick="switchTab('help')" style="margin-left: auto;">❓ 帮助</button>
 </div>
 <div class="content">
     <div id="panel-check" class="panel active">
@@ -229,71 +242,68 @@ const htmlPage = `
     <div id="panel-logs" class="panel" style="padding:20px;height:100%"><div class="log-layout"><div class="log-sidebar"><div class="log-sidebar-header">日志列表</div><ul class="log-list"><li class="log-item" onclick="viewLog('tomcat', this)"><span>Tomcat</span> <button class="btn-dl-log" onclick="dlLog('tomcat', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('nginx_access', this)"><span>Nginx Access</span> <button class="btn-dl-log" onclick="dlLog('nginx_access', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('nginx_error', this)"><span>Nginx Error</span> <button class="btn-dl-log" onclick="dlLog('nginx_error', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('app_server', this)"><span>App Server</span> <button class="btn-dl-log" onclick="dlLog('app_server', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('emm_backend', this)"><span>EMM Backend</span> <button class="btn-dl-log" onclick="dlLog('emm_backend', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('license', this)"><span>License</span> <button class="btn-dl-log" onclick="dlLog('license', event)"><i class="fas fa-download"></i></button></li><li class="log-item" onclick="viewLog('platform', this)"><span>Platform</span> <button class="btn-dl-log" onclick="dlLog('platform', event)"><i class="fas fa-download"></i></button></li></ul></div><div class="log-viewer-container"><div class="log-viewer-header"><span id="logTitle">请选择...</span><div><label><input type="checkbox" id="autoScroll" checked> 自动滚动</label> <button class="btn-sm" onclick="clearLog()">清空</button></div></div><div id="logContent" class="log-content"></div></div></div></div>
     
     <div id="panel-baseservices" class="panel">
-       <div class="bs-header">
-           <button class="sub-tab-btn active" onclick="switchSubTab(event, 'bs-redis')">Redis</button>
-           <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-mysql')">MySQL</button>
-           <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-rabbitmq')">RabbitMQ</button>
-           <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-minio')">MinIO</button>
-       </div>
-       
-       <div id="bs-redis" class="sub-panel active" style="padding: 20px; overflow-y: auto;">
-           <div class="container-box" style="padding:0">
-             <div class="card">
-                <h3>Redis 性能指标</h3>
-                <div id="redis-info-grid" class="grid-4">加载中...</div>
-             </div>
-             <div class="card">
-                <h3>键值管理</h3>
-                <div id="redis-keys-table-container">加载中...</div>
-             </div>
-           </div>
-       </div>
-
-       <div id="bs-mysql" class="sub-panel" style="padding: 20px; overflow-y: auto;">
-           <div class="container-box" style="padding:0">
-             <div class="card">
-                <div style="display:flex; align-items:center; gap:15px; margin-bottom:15px;">
-                   <h3>MySQL 监控</h3>
-                   <select id="db-selector" onchange="mysql.switchDB(this.value)"><option value="mdm">mdm</option><option value="multitenant">multitenant</option></select>
-                   <button class="sub-tab-btn active" onclick="switchSubTab(event, 'mysql-monitor', false, 'mysql-tab-group')">监控</button>
+        <div class="bs-header">
+            <button class="sub-tab-btn active" onclick="switchSubTab(event, 'bs-redis')">Redis</button>
+            <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-mysql')">MySQL</button>
+            <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-rabbitmq')">RabbitMQ</button>
+            <button class="sub-tab-btn" onclick="switchSubTab(event, 'bs-minio')">MinIO</button>
+        </div>
+        
+        <div id="bs-redis" class="sub-panel active" style="padding: 20px; overflow-y: auto;">
+            <div class="container-box" style="padding:0">
+              <div class="card">
+                 <h3>Redis 性能指标</h3>
+                 <div id="redis-info-grid" class="grid-4">加载中...</div>
+              </div>
+              <div class="card">
+                 <h3>键值管理</h3>
+                 <div id="redis-keys-table-container">加载中...</div>
+              </div>
+            </div>
+        </div>
+        <div id="bs-mysql" class="sub-panel" style="padding: 20px; overflow-y: auto;">
+            <div class="container-box" style="padding:0">
+              <div class="card">
+                 <div style="display:flex; align-items:center; gap:15px; margin-bottom:15px;">
+                    <h3>MySQL 监控</h3>
+                    <select id="db-selector" onchange="mysql.switchDB(this.value)"><option value="mdm">mdm</option><option value="multitenant">multitenant</option></select>
+                    <button class="sub-tab-btn active" onclick="switchSubTab(event, 'mysql-monitor', false, 'mysql-tab-group')">监控</button>
                     <button class="sub-tab-btn" onclick="switchSubTab(event, 'mysql-sql', false, 'mysql-tab-group')">SQL执行</button>
-                </div>
-                <div id="mysql-monitor" class="mysql-tab-group active">
-                   <div class="grid-4" style="margin-bottom: 15px;">
-                      <div class="card"><h3>Threads</h3><div id="mysql-threads" style="font-size:1.5em;font-weight:bold;">0</div></div>
-                      <div class="card"><h3>QPS</h3><div id="mysql-qps" style="font-size:1.5em;font-weight:bold;">0</div></div>
-                      <div class="card"><h3>Max Connections</h3><div id="mysql-connections" style="font-size:1.5em;font-weight:bold;">0</div></div>
-                      <div class="card"><h3>Uptime</h3><div id="mysql-uptime" style="font-size:1.5em;font-weight:bold;">0</div></div>
-                   </div>
-                   <div class="grid-2">
-                      <div class="card"><h3>性能</h3><canvas id="mysql-metricChart"></canvas></div>
-                      <div class="card"><h3>主从复制</h3><div id="mysql-replStatus"></div><canvas id="mysql-replChart"></canvas></div>
-                      <div class="card"><h3>表空间占用 (Top 10)</h3><canvas id="mysql-tableSizeChart"></canvas></div>
-                      <div class="card"><h3>频繁操作表 (Top 10)</h3><canvas id="mysql-tableOpsChart"></canvas></div>
-                   </div>
-                   <div class="card">
-                      <h3>当前进程</h3>
-                      <input id="mysql-slowFilter" placeholder="过滤SQL..." oninput="mysql.loadProcesslist()">
+                 </div>
+                 <div id="mysql-monitor" class="mysql-tab-group active">
+                    <div class="grid-4" style="margin-bottom: 15px;">
+                       <div class="card"><h3>Threads</h3><div id="mysql-threads" style="font-size:1.5em;font-weight:bold;">0</div></div>
+                       <div class="card"><h3>QPS</h3><div id="mysql-qps" style="font-size:1.5em;font-weight:bold;">0</div></div>
+                       <div class="card"><h3>Max Connections</h3><div id="mysql-connections" style="font-size:1.5em;font-weight:bold;">0</div></div>
+                       <div class="card"><h3>Uptime</h3><div id="mysql-uptime" style="font-size:1.5em;font-weight:bold;">0</div></div>
+                    </div>
+                    <div class="grid-2">
+                       <div class="card"><h3>性能</h3><canvas id="mysql-metricChart"></canvas></div>
+                       <div class="card"><h3>主从复制</h3><div id="mysql-replStatus"></div><canvas id="mysql-replChart"></canvas></div>
+                       <div class="card"><h3>表空间占用 (Top 10)</h3><canvas id="mysql-tableSizeChart"></canvas></div>
+                       <div class="card"><h3>频繁操作表 (Top 10)</h3><canvas id="mysql-tableOpsChart"></canvas></div>
+                    </div>
+                    <div class="card">
+                       <h3>当前进程</h3>
+                       <input id="mysql-slowFilter" placeholder="过滤SQL..." oninput="mysql.loadProcesslist()">
                        <div style="max-height: 400px; overflow-y: auto;"><table id="mysql-slowQueryTable"><thead><tr><th>Id</th><th>User</th><th>Host</th><th>DB</th><th>Command</th><th>Time(s)</th><th>State</th><th>Info</th></tr></thead><tbody></tbody></table></div>
-                   </div>
-                </div>
-                <div id="mysql-sql" class="mysql-tab-group" style="display:none;">
-                   <h3>执行SQL</h3>
-                   <textarea id="mysql-sqlInput" rows="5" style="width:100%; font-family:monospace;"></textarea>
-                   <button onclick="mysql.execSQL()" class="btn-green" style="margin-top:10px;">执行</button>
-                   <div id="mysql-sqlResult" class="sql-table-container"></div>
-                </div>
-             </div>
-           </div>
-       </div>
-
-       <div id="bs-rabbitmq" class="sub-panel" style="padding: 0;">
-           <iframe id="frame-rabbitmq" data-src="api/baseservices/rabbitmq/" class="iframe-container"></iframe>
-       </div>
-
-       <div id="bs-minio" class="sub-panel" style="padding: 0;">
-           <iframe id="frame-minio" data-src="api/baseservices/minio/" class="iframe-container"></iframe>
-       </div>
+                    </div>
+                 </div>
+                 <div id="mysql-sql" class="mysql-tab-group" style="display:none;">
+                    <h3>执行SQL</h3>
+                    <textarea id="mysql-sqlInput" rows="5" style="width:100%; font-family:monospace;"></textarea>
+                    <button onclick="mysql.execSQL()" class="btn-green" style="margin-top:10px;">执行</button>
+                    <div id="mysql-sqlResult" class="sql-table-container"></div>
+                 </div>
+              </div>
+            </div>
+        </div>
+        <div id="bs-rabbitmq" class="sub-panel" style="padding: 0;">
+            <iframe id="frame-rabbitmq" data-src="api/baseservices/rabbitmq/" class="iframe-container"></iframe>
+        </div>
+        <div id="bs-minio" class="sub-panel" style="padding: 0;">
+            <iframe id="frame-minio" data-src="api/baseservices/minio/" class="iframe-container"></iframe>
+        </div>
     </div>
 
     <div id="panel-about" class="panel">
@@ -309,6 +319,12 @@ const htmlPage = `
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div id="panel-help" class="panel">
+        <div class="container-box">
+            <div id="help-content" class="card" style="padding: 20px 30px;"></div>
         </div>
     </div>
 </div>
@@ -328,7 +344,16 @@ const htmlPage = `
     let deployTerm, sysTerm, deploySocket, sysSocket, deployFit, sysFit, logSocket, currentPath = "/root";
     let sysChart, netChart; let checkInterval;
 
-    window.onload = function() { initCharts(); runCheck(); fmLoadPath("/root"); startCheckPolling(); }
+    // Fixed: Replaced double backslashes \\n with single backslash \n to ensure correct newline parsing in Markdown
+    const readmeContent = '# UEM Deployment Tools\n\n> 一个用于UEM（统一端点管理）部署、监控和维护的辅助工具集。\n\n该工具包含一个在 Windows 上运行的客户端 (\x60uemtools.exe\x60) 和一个在目标 Linux 服务器上运行的代理 (\x60cncyagent\x60)。用户通过客户端与远程服务器上的代理进行交互，实现各种自动化操作和监控。\n\n## 🚀 产品功能 (Product Features)\n\n工具的前端界面提供了丰富的功能，主要分为以下几个模块：\n\n#### 1. 🔍 操作系统\n- **实时资源监控**: 以图表形式实时展示 CPU、内存使用率、系统平均负载和网络流量 (Rx/Tx)。\n- **基础环境检测**: 一键检查 CPU 核心数、内存大小、系统架构、操作系统版本和 \x60ulimit\x60 限制，并给出是否满足建议规格的判断。\n- **磁盘空间概览**: 以进度条形式清晰展示所有挂载点的磁盘使用情况。\n- **安全与网络**:\n    - 检查并提供一键修复 SELinux 和防火墙状态的功能。\n    - 检查并提供一键开启 SSH 隧道转发 (\x60AllowTcpForwarding\x60) 的功能。\n    - **网络端口**: 实时显示 \x60netstat -nltp\x60 的结果，方便查看端口监听状态。\n    - **TCP 连接数**: 实时统计当前系统的总 TCP 连接数量。\n- **UEM 服务监控**: 自动检测 UEM 是否安装，并实时展示所有相关服务的运行状态，提供单独重启服务的功能。\n- **MinIO 检测**: 检查 MinIO 存储桶是否存在以及其访问策略是否为公开，并提供一键修复为公开读策略的功能。\n\n#### 2. 🔧 环境依赖\n- **ISO 挂载**: 支持通过上传 ISO 镜像文件或指定服务器上的本地路径，自动将其挂载并配置为本地 YUM 源。\n- **RPM 安装**: 支持在线上传 RPM 包并直接在服务器上进行安装。\n\n#### 3. 📦 部署/更新\n- **灵活的部署路径**: 支持指定任意服务器目录作为工作目录。\n- **脚本自动检测**: 自动检测指定目录下是否存在 \x60install.sh\x60 (用于首次部署) 和 \x60mdm.sh\x60 (用于更新)，并根据检测结果动态启用相关操作按钮。\n- **一键式操作**:\n    - **首次部署**: 执行 \x60install.sh\x60。\n    - **UEM 更新**: 执行 \x60mdm.sh uem\x60。\n    - **WebUI 更新**: 执行 \x60mdm.sh webui\x60。\n    - **Tomcat 更新**: 执行 \x60mdm.sh tomcat\x60。\n- **实时输出**: 所有部署和更新操作的输出都会实时显示在网页终端中。\n\n#### 4. 📂 文件管理\n- 提供一个简单的网页版文件浏览器。\n- 支持在服务器上浏览目录、返回上级。\n- 支持从本地上传文件到服务器的当前目录。\n- 支持下载服务器上的文件。\n\n#### 5. 💻 终端\n- 提供一个功能完整的、交互式的网页 Shell 终端，可以直接操作服务器。\n\n#### 6. 📜 日志查看\n- **多日志源**: 预设了 Tomcat, Nginx, AppServer 等多个常用服务的日志。\n- **实时流式传输**: 点击即可实时查看日志 (\x60tail -f\x60)。\n- **便捷操作**: 支持自动滚动、清空显示和一键下载日志文件。\n\n#### 7. ⚙️ 基础服务\n- **零配置监控**: 工具能够**自动读取** UEM 的核心配置文件 \x60global.properties\x60，从中获取 Redis、MySQL、RabbitMQ 等服务的连接信息，无需用户手动输入。\n- **Redis**:\n    - 实时查看 Redis 的各项性能指标。\n    - 浏览、查看、修改和删除 Key-Value。\n- **MySQL**:\n    - 实时监控多实例 (mdm, multitenant) 的 QPS、线程数、连接数、主从延迟等状态。\n    - 以图表形式展示表空间和表操作的 Top 10。\n    - 查看实时进程列表 (\x60SHOW FULL PROCESSLIST\x60)。\n    - 提供 SQL 执行器，可直接执行查询或修改语句并查看结果。\n- **RabbitMQ & MinIO**:\n    - 通过反向代理将它们的管理后台无缝内嵌到工具中，无需再次登录或暴露端口。\n\n## 🛠️ 技术实现 (Technical Implementation)\n\n#### 1. 项目架构\n本项目采用 **C/S 架构**，并通过 **Wails** 技术将客户端和服务端能力打包成一个独立的 Windows 桌面应用。\n\n- **Agent (后端代理)**: 一个纯 Go 语言编写的轻量级 Web 服务器，运行在目标 Linux 服务器上。它不依赖任何外部运行时，具有出色的跨平台和性能表现。\n- **Client (前端客户端)**: 一个基于 **Wails v2** 的 Windows 桌面应用。Wails 使用 Go 作为后端，通过 WebView2 渲染前端 UI，实现了接近本机的性能和体验。\n\n---\n\n#### 2. Agent 核心实现方法\n\nAgent 是所有远程操作的执行者。\n\n- **Web 服务**:\n    - 使用 **Gin** (\x60github.com/gin-gonic/gin\x60) 框架构建，它以高性能和简洁的 API 设计著称。\n    - Agent 启动后，会监听一个端口（默认为 \x609898\x60），提供两类服务：\n        1.  **RESTful API**: 用于处理无状态、一次性的请求，如获取系统信息 (\x60/api/check\x60)、列出文件 (\x60/api/fs/list\x60) 等。\n        2.  **WebSocket 服务**: 用于需要持久连接和实时双向通信的场景。\n\n- **系统信息与服务发现**:\n    - **命令执行**: 大部分系统信息通过 \x60os/exec\x60 包执行标准的 Linux 命令并解析其 \x60stdout\x60 来获得。例如：\n        - \x60netstat -nltp\x60: 获取监听中的 TCP 端口信息。Go 代码会逐行解析输出，提取协议、地址、PID 等关键字段，并将其构造成 JSON 数组返回给前端。\n        - \x60df -h\x60: 获取磁盘分区信息。\n        - \x60ulimit -n\x60: 获取文件句柄数限制。\n    - **文件读取**: 部分核心指标（如内存、CPU）直接读取 \x60/proc\x60 文件系统下的文件（如 \x60/proc/meminfo\x60, \x60/proc/loadavg\x60）来获取原始数据，这样做比执行命令更高效。\n    - **自动服务发现 (通过 \x60global.properties\x60)**:\n        - **定位文件**: Agent 启动时，会自动尝试读取 UEM 的核心配置文件 \x60/opt/emm/current/config/global.properties\x60。\n        - **解析配置**: 使用 \x60github.com/magiconair/properties\x60 库解析该 \x60.properties\x60 文件。\n        - **提取关键信息**: 从文件中读取以下关键配置项：\n            - \x60system.redis.host\x60, \x60system.redis.port\x60, \x60system.redis.password\x60\n            - \x60jdbc.url\x60, \x60jdbc.username\x60, \x60jdbc.password\x60 (用于主数据库 \x60mdm\x60)\n            - \x60jdbc.multitenant.url\x60, \x60jdbc.multitenant.username\x60, \x60jdbc.multitenant.password\x60 (用于多租户数据库)\n            - \x60spring.rabbitmq.addresses\x60, \x60rabbitmq.admin.port\x60\n            - \x60storage.minio.url\x60\n        - **建立连接**: 基于这些提取出的信息，Agent 初始化到各个服务的连接池（如 \x60database/sql\x60 和 \x60go-redis\x60），从而实现了对这些基础服务的“零配置”监控和管理。\n\n- **交互式终端与实时日志**:\n    - **伪终端 (PTY)**: 使用 \x60github.com/creack/pty\x60 库在服务器上创建一个伪终端，并将用户的 Shell（如 \x60/bin/bash\x60）附加到该终端上。\n    - **WebSocket 桥接**:\n        1.  前端（使用 **Xterm.js**）捕获用户的按键输入，通过 WebSocket 将数据发送到 Agent。\n        2.  Agent 接收到数据后，将其写入 PTY 的 master 端，模拟真实终端的输入。\n        3.  Shell 在 PTY 的 slave 端执行命令，其输出被 Agent 从 PTY 的 master 端读取。\n        4.  Agent 将读取到的输出通过 WebSocket 实时地回传给前端的 Xterm.js 进行显示。\n    - **实时日志** (\x60tail -f\x60) 的实现与此类似，只是将 \x60bash\x60 换成了 \x60tail -f /path/to/log\x60 命令。\n\n---\n\n#### 3. Client 与 Agent 的通信流程\n\n这是整个工具链的核心。\n\n1.  **启动与连接**:\n    - 用户在 Wails 应用中输入服务器的 IP、用户名和密码。\n    - Wails 的 Go 后端使用 \x60golang.org/x/crypto/ssh\x60 包建立一个到目标服务器的 SSH 连接。\n\n2.  **Agent 部署与启动**:\n    - 项目在编译时，已通过 Go 的交叉编译功能将 Agent 代码编译成 \x60amd64\x60 和 \x60arm64\x60 两种架构的 Linux 二进制文件，并将其**嵌入**到 Wails 客户端 \x60uemtools.exe\x60 中。\n    - SSH 连接成功后，客户端首先检测服务器的架构 (\x60uname -m\x60)。\n    - 根据架构，选择对应的 Agent 二进制文件，通过 SSH 的 SFTP 功能将其上传到服务器的一个临时目录（如 \x60/tmp/cncyagent_amd64\x60）。\n    - 客户端通过 SSH 执行命令，为 Agent 添加执行权限 (\x60chmod +x\x60)，然后启动它。\n\n3.  **建立通信隧道 (SSH 端口转发)**:\n    - Agent 在服务器上监听的是 \x60127.0.0.1:9898\x60，这是一个仅限服务器本地访问的地址，保证了安全性。\n    - 为了让 Wails 客户端（运行在用户的 Windows 电脑上）能够访问到这个端口，客户端在建立 SSH 连接的同时，会设置一个**本地端口转发** (Local Port Forwarding)。\n    - 这意味着，客户端会监听自己电脑上的一个端口（例如 \x60localhost:39898\x60），并将所有发送到该端口的流量通过 SSH 安全隧道转发到服务器的 \x60127.0.0.1:9898\x60。\n\n4.  **前端交互**:\n    - Wails 应用的前端 UI 是一个内嵌的网页。这个网页中的所有 API 请求（通过 \x60fetch\x60）和 WebSocket 连接，实际上访问的都是 \x60http://localhost:39898\x60。\n    - 这些请求被 SSH 客户端拦截，加密后通过隧道发送到服务器，最终到达 Agent。Agent 处理后返回的数据再沿着隧道传回前端。\n    - 对用户和前端代码来说，整个过程是透明的，就像在直接访问一个本地服务。\n\n---\n\n#### 4. 反向代理的实现\n\n为了将 RabbitMQ 和 MinIO 的 Web 管理后台无缝集成，Agent 内置了一个基于 \x60net/http/httputil.NewSingleHostReverseProxy\x60 的反向代理。\n\n- **解决跨域和端口问题**: 无需将 RabbitMQ/MinIO 的管理端口暴露到公网，前端只需与 Agent 的端口通信。\n- **路径重写**: 代理会拦截特定路径的请求（如 \x60/api/baseservices/rabbitmq/*\x60)，将请求转发到内部的管理端口（如 \x60127.0.0.1:15672\x60)，并将响应返回给前端。\n- **HTML 内容修复**: 由于这些管理后台的 HTML/JS/CSS 文件中的资源路径通常是绝对路径（如 \x60/css/main.css\x60)，直接在 iframe 中加载会导致 404。代理会在返回响应前，读取 HTML/JS 内容，通过字符串替换，将这些路径动态修改为带代理前缀的路径（如 \x60src="/css/main.css"\x60 -> \x60src="/api/baseservices/rabbitmq/css/main.css"\x60)，从而确保所有资源都能被正确加载。\n\n## 🏗️ 如何构建 (How to Build)\n\n项目提供了一个 \x60build.sh\x60 脚本来自动化整个构建流程。\n\n1.  确保您的开发环境中已安装 Go 和 Wails v2。\n2.  在项目根目录下，执行以下命令：\n    \x60\x60\x60sh\n    sh build.sh\n    \x60\x60\x60\n3.  脚本会完成以下工作：\n    - 交叉编译生成两个 Linux Agent: \x60cncyagent_amd64\x60 和 \x60cncyagent_arm64\x60。\n    - 使用 Wails 构建 Windows 客户端 \x60uemtools.exe\x60，并将上述 Agent 二进制文件嵌入其中。\n    - 将所有生成物移动到 \x60build/bin/\x60 目录下。\n\n构建成功后，所有产物都位于 \x60build/bin/\x60 目录中。\n\n## Nginx 配置示例 (Nginx Configuration Example)\n\n如果您希望通过 Nginx 反向代理来访问 Agent，可以使用以下配置：\n\n\x60\x60\x60nginx\nlocation /gogogo/ {\n    # 注意端口号改成你的 agent 端口，末尾的 / 用于去除 /gogogo 前缀\n    proxy_pass http://127.0.0.1:9898/;\n   \n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Prefix /gogogo;\n    # 支持 WebSocket\n    proxy_http_version 1.1;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection "upgrade";\n}\n\x60\x60\x60\n';
+
+    window.onload = function() {
+         initCharts();
+         runCheck();
+         fmLoadPath("/root");
+         startCheckPolling();
+         document.getElementById('help-content').innerHTML = marked.parse(readmeContent);
+    }
     function startCheckPolling() { if(checkInterval) clearInterval(checkInterval); checkInterval = setInterval(() => { if(document.getElementById('panel-check').classList.contains('active')) { runCheck(); } }, 3000); }
     function initCharts() {
         const ctx = document.getElementById('sysChart').getContext('2d');
@@ -345,10 +370,10 @@ const htmlPage = `
     }
     function switchSubTab(event, id, isLink, group) {
        if (isLink) { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); const mainBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.includes('基础服务')); if(mainBtn) mainBtn.classList.add('active'); document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById('panel-baseservices').classList.add('active'); }
-       if(group) { const p = event.target.closest('.card'); p.querySelectorAll('.'+group).forEach(x=>x.style.display='none'); p.querySelectorAll('.sub-tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(id).style.display='block'; event.target.classList.add('active'); return; } 
-       else { const parent = document.getElementById('panel-baseservices'); parent.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active')); parent.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active')); document.getElementById(id).classList.add('active'); event.target.classList.add('active'); }
-       if (id === 'bs-rabbitmq') { const frame = document.getElementById('frame-rabbitmq'); if (!frame.src) frame.src = frame.dataset.src; } 
-       else if (id === 'bs-minio') { const frame = document.getElementById('frame-minio'); if (!frame.src) { frame.src = frame.dataset.src; frame.onload = function() { let attempts = 0; const interval = setInterval(() => { attempts++; if(attempts > 40) clearInterval(interval); try { const doc = frame.contentWindow.document; const user = doc.getElementById('accessKey'); const pass = doc.getElementById('secretKey'); const btn = doc.querySelector('button[type="submit"]'); if(user && pass && btn) { const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; nativeInputValueSetter.call(user, 'admin'); user.dispatchEvent(new Event('input', { bubbles: true })); nativeInputValueSetter.call(pass, 'Nqsky1130'); pass.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => { btn.click(); }, 300); clearInterval(interval); } } catch(e) {} }, 500); }; } }
+       if(group) { const p = event.target.closest('.card'); p.querySelectorAll('.'+group).forEach(x=>x.style.display='none'); p.querySelectorAll('.sub-tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(id).style.display='block'; event.target.classList.add('active'); return; }
+        else { const parent = document.getElementById('panel-baseservices'); parent.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active')); parent.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active')); document.getElementById(id).classList.add('active'); event.target.classList.add('active'); }
+       if (id === 'bs-rabbitmq') { const frame = document.getElementById('frame-rabbitmq'); if (!frame.src) frame.src = frame.dataset.src; }
+        else if (id === 'bs-minio') { const frame = document.getElementById('frame-minio'); if (!frame.src) { frame.src = frame.dataset.src; frame.onload = function() { let attempts = 0; const interval = setInterval(() => { attempts++; if(attempts > 40) clearInterval(interval); try { const doc = frame.contentWindow.document; const user = doc.getElementById('accessKey'); const pass = doc.getElementById('secretKey'); const btn = doc.querySelector('button[type="submit"]'); if(user && pass && btn) { const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; nativeInputValueSetter.call(user, 'admin'); user.dispatchEvent(new Event('input', { bubbles: true })); nativeInputValueSetter.call(pass, 'Nqsky1130'); pass.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => { btn.click(); }, 300); clearInterval(interval); } } catch(e) {} }, 500); }; } }
     }
     function getWsUrl(ep) { let path = location.pathname; if (!path.endsWith('/')) path += '/'; return (location.protocol==='https:'?'wss://':'ws://') + location.host + path + ep; }
     function viewLog(key, el) {
@@ -405,8 +430,8 @@ const htmlPage = `
                     foundScript = true;
                 }
 
-                if (!foundScript) {
-                     info += '<span class="warn">未找到 install.sh 或 mdm.sh</span><br><span class="fail" style="font-size:11px;">' + (data.debug_msg||"") + '</span>';
+                if (!foundScript) { 
+                    info += '<span class="warn">未找到 install.sh 或 mdm.sh</span><br><span class="fail" style="font-size:11px;">' + (data.debug_msg||"") + '</span>';
                 }
                 msgBox.innerHTML = info;
             } else {
@@ -421,52 +446,52 @@ const htmlPage = `
     // ==========================================
     // 核心逻辑：上传成功后自动检测
     // ==========================================
-    async function uploadFile() { 
-        const i=document.getElementById('fileInput'); 
-        if(!i.files.length)return; 
-        event.target.disabled=true; 
-        const fd=new FormData(); 
-        fd.append("file", i.files[0]); 
-        try { 
-            const r=await fetch(UPLOAD_URL, {method:'POST', body:fd}); 
-            if(r.ok) { 
-                document.getElementById('uploadStatus').innerHTML = "<span class='pass'>✅ 成功</span>"; 
-                // 上传后自动检测当前路径，点亮按钮
+    async function uploadFile() {
+         const i=document.getElementById('fileInput');
+         if(!i.files.length)return;
+         event.target.disabled=true;
+         const fd=new FormData();
+         fd.append("file", i.files[0]);
+         try {
+             const r=await fetch(UPLOAD_URL, {method:'POST', body:fd});
+             if(r.ok) {
+                 document.getElementById('uploadStatus').innerHTML = "<span class='pass'>✅ 成功</span>";
+                 // 上传后自动检测当前路径，点亮按钮
                 checkManualPath();
-            } else { 
-                throw await r.text(); 
-            } 
-        } catch(e){
+            } else {
+                 throw await r.text();
+             }
+         } catch(e){
             alert("Error: "+e);
-        } 
-        event.target.disabled=false; 
-    }
+        }
+         event.target.disabled=false;
+     }
 
     // ==========================================
     // 核心逻辑：执行脚本 (带参数)
     // ==========================================
-    function startScript(type, arg) { 
-        const path = document.getElementById('manualPathInput').value.trim();
+    function startScript(type, arg) {
+         const path = document.getElementById('manualPathInput').value.trim();
         
-        if(deployTerm) deployTerm.dispose(); 
-        if(deploySocket) deploySocket.close(); 
-        
-        deployTerm = new Terminal({cursorBlink:true, fontSize:13, theme:{background:'#000'}}); 
-        deployFit = new FitAddon.FitAddon(); 
-        deployTerm.loadAddon(deployFit); 
-        deployTerm.open(document.getElementById('deploy-term')); 
-        deployFit.fit(); 
-        
-        // 构建 WebSocket URL
+         if(deployTerm) deployTerm.dispose();
+         if(deploySocket) deploySocket.close();
+         
+         deployTerm = new Terminal({cursorBlink:true, fontSize:13, theme:{background:'#000'}});
+         deployFit = new FitAddon.FitAddon();
+         deployTerm.loadAddon(deployFit);
+         deployTerm.open(document.getElementById('deploy-term'));
+         deployFit.fit();
+         
+         // 构建 WebSocket URL
         let wsUrl = "ws/deploy?type=" + type + "&path=" + encodeURIComponent(path);
         if (arg) {
             wsUrl += "&arg=" + arg;
         }
         
-        deploySocket = new WebSocket(getWsUrl(wsUrl)); 
-        setupSocket(deploySocket, deployTerm, deployFit); 
-        
-        // 执行中禁用按钮
+         deploySocket = new WebSocket(getWsUrl(wsUrl));
+         setupSocket(deploySocket, deployTerm, deployFit);
+         
+         // 执行中禁用按钮
         const btns = document.querySelectorAll('#panel-deploy button');
         btns.forEach(b => b.disabled = true);
     }
@@ -503,8 +528,8 @@ const htmlPage = `
             data.sys_info.disk_list.forEach(d => { let color = d.usage>=90?'bg-red':(d.usage>=75?'bg-orange':'bg-green'); diskHtml += '<div><div style="font-weight:bold;margin-bottom:4px;font-size:13px;">'+d.mount+' <span style="color:#666">('+d.usage+'%)</span></div><div class="progress-bg"><div class="progress-bar '+color+'" style="width:'+d.usage+'%"></div></div><div class="disk-text"><span>'+d.used+'</span><span>'+d.total+'</span></div></div>'; });
             document.getElementById('diskList').innerHTML = diskHtml + '</div>';
             const uemBox = document.getElementById('uemStatusBox');
-            if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM</div>'; } 
-            else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='run'?'<span class="pass">running</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
+            if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM</div>'; }
+             else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='run'?'<span class="pass">running</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
             let mHtml = !data.minio_info.bucket_exists ? '<tr><td>Err</td><td colspan="2">桶不存在/未连接</td></tr>' : '<tr><td>nqsky</td><td>'+data.minio_info.policy+'</td><td>'+(data.minio_info.policy==='public'?'<span class="pass">OK</span>':'<button class="btn-sm btn-fix" onclick="fixMinio()">Public</button>')+'</td></tr>';
             document.getElementById('minioTable').innerHTML = mHtml;
 
@@ -595,5 +620,4 @@ const htmlPage = `
     };
 </script>
 </body>
-</html>
-`
+</html>`
