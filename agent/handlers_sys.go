@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -121,16 +122,29 @@ func handleCheckEnv(c *gin.Context) {
 	}
 	res.SecInfo.Firewall = fw
 	res.SecInfo.SshTunnelOk = checkSshConfig()
+
+	// --- UEM 服务状态检查 (最终正确版) ---
 	if _, err := os.Stat("/opt/emm/current"); err == nil {
 		res.UemInfo.Installed = true
 		for _, s := range uemServices {
 			st := "stop"
-			if err := exec.Command("pgrep", "-f", s).Run(); err == nil {
+			cmd := exec.Command("systemctl", "show", "-p", "ActiveState", "--value", s)
+			output, err := cmd.CombinedOutput()
+
+			if err == nil && strings.Contains(string(output), "active") {
 				st = "run"
 			}
-			res.UemInfo.Services = append(res.UemInfo.Services, ServiceStat{Name: s, Status: st})
+
+			displayName := s
+			if s == "rabbitmq-server" {
+				displayName = "rabbitmq"
+			}
+
+			res.UemInfo.Services = append(res.UemInfo.Services, ServiceStat{Name: displayName, Status: st})
 		}
 	}
+	// --- 检查结束 ---
+
 	mClient, err := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
 	if err == nil {
 		exists, _ := mClient.BucketExists(context.Background(), MinioBucket)
@@ -149,14 +163,31 @@ func handleCheckEnv(c *gin.Context) {
 
 func handleRestartService(c *gin.Context) {
 	name := c.Query("name")
-	_ = exec.Command("systemctl", "restart", name).Run()
+	if name == "rabbitmq" {
+		name = "rabbitmq-server"
+	}
+	cmd := exec.Command("systemctl", "restart", name)
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("[ServiceRestart] Failed to restart service '%s': %v", name, err)
+	}
 	c.String(200, "Done")
 }
 
 func handleFixMinio(c *gin.Context) {
-	m, _ := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
+	mClient, err := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
+	if err != nil {
+		log.Printf("[MinioFix] Failed to create minio client: %v", err)
+		c.String(500, "Failed to create minio client")
+		return
+	}
 	p := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::%s"]},{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*"]}]}`, MinioBucket, MinioBucket)
-	_ = m.SetBucketPolicy(context.Background(), MinioBucket, p)
+	err = mClient.SetBucketPolicy(context.Background(), MinioBucket, p)
+	if err != nil {
+		log.Printf("[MinioFix] Failed to set bucket policy: %v", err)
+		c.String(500, "Failed to set bucket policy")
+		return
+	}
 	c.String(200, "Done")
 }
 

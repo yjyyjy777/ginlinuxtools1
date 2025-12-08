@@ -504,7 +504,7 @@ const htmlPage = `
             document.getElementById('diskList').innerHTML = diskHtml + '</div>';
             const uemBox = document.getElementById('uemStatusBox');
             if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM</div>'; } 
-            else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='running'?'<span class="pass">Run</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
+            else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='run'?'<span class="pass">running</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
             let mHtml = !data.minio_info.bucket_exists ? '<tr><td>Err</td><td colspan="2">桶不存在/未连接</td></tr>' : '<tr><td>nqsky</td><td>'+data.minio_info.policy+'</td><td>'+(data.minio_info.policy==='public'?'<span class="pass">OK</span>':'<button class="btn-sm btn-fix" onclick="fixMinio()">Public</button>')+'</td></tr>';
             document.getElementById('minioTable').innerHTML = mHtml;
 

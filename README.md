@@ -158,3 +158,23 @@ Agent 是所有远程操作的执行者。
     - 将所有生成物移动到 `build/bin/` 目录下。
 
 构建成功后，所有产物都位于 `build/bin/` 目录中。
+
+## Nginx 配置示例 (Nginx Configuration Example)
+
+如果您希望通过 Nginx 反向代理来访问 Agent，可以使用以下配置：
+
+```nginx
+location /gogogo/ {
+    # 注意端口号改成你的 agent 端口，末尾的 / 用于去除 /gogogo 前缀
+    proxy_pass http://127.0.0.1:9898/;
+   
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Prefix /gogogo;
+    # 支持 WebSocket
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
