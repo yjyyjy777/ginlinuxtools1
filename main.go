@@ -424,6 +424,11 @@ func (a *App) updateStatus(running bool, localPort, remotePort string) {
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{
+		Title:     "UEM Deployment Tools",
+		Width:     500,
+		Height:    480, // [MODIFIED] 默认高度与最小高度一致
+		MinWidth:  450,
+		MinHeight: 480, // [MODIFIED] 保持最小高度为 480
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

@@ -52,25 +52,30 @@ html, body {
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: clamp(0.8rem, 2.5vh, 1.2rem) clamp(0.7rem, 2.5vw, 1rem);
+    /* [MODIFIED] 底部 padding 归零 */
+    padding: 10px clamp(0.7rem, 2.5vw, 1rem) 0;
     box-sizing: border-box;
+    position: relative; /* 为 absolute header 提供定位基准 */
 }
 
 header {
+    position: absolute;
+    top: 12px;
+    right: 15px;
+    z-index: 50;
+    margin: 0;
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    margin-bottom: clamp(0.4rem, 1.5vh, 0.8rem);
-    flex-shrink: 0;
 }
 
 #main-grid {
     display: flex;
     flex-direction: column;
-    gap: clamp(0.6rem, 1.8vh, 1rem);
+    gap: 8px;
     overflow: hidden;
-    flex-grow: 1;
     min-height: 0;
+    /* [MODIFIED] 移除 flex-grow，不再强行拉伸 */
 }
 
 /* --- 3. 卡片样式 --- */
@@ -78,7 +83,7 @@ header {
     background: var(--background-card);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    padding: clamp(0.8rem, 2.5vw, 1rem);
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
     box-shadow: none;
@@ -86,30 +91,33 @@ header {
 }
 
 #status-card {
-    flex-grow: 1;
+    margin-top: 0;
     min-height: 0;
+    /* [MODIFIED] 移除 flex-grow，恢复自然高度 */
 }
 
 .card h2 {
     font-size: var(--font-size-h2);
-    margin: 0 0 clamp(0.7rem, 1.8vh, 1rem);
+    margin: 0 0 8px;
     color: var(--text-primary);
     font-weight: 600;
     border-bottom: 1px solid var(--border-color);
-    padding-bottom: clamp(0.5rem, 1.2vh, 0.8rem);
+    padding-bottom: 5px;
 }
 
 /* --- 4. 表单控件 --- */
-.form-group { margin-bottom: clamp(0.5rem, 1.5vh, 0.8rem); }
+.form-group {
+    margin-bottom: 8px;
+}
 .form-group label {
     display: block;
     color: var(--text-secondary);
-    margin-bottom: 0.3rem;
+    margin-bottom: 2px;
     font-weight: 500;
 }
 .form-group input, .form-group select {
     width: 100%;
-    padding: clamp(0.5rem, 1.2vh, 0.7rem) 0.7rem;
+    padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--background-secondary);
@@ -134,7 +142,6 @@ header {
     position: relative;
 }
 
-/* 隐藏浏览器默认的密码查看按钮 */
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
     display: none;
@@ -143,10 +150,9 @@ input[type="password"]::-webkit-reveal {
     display: none;
 }
 
-
 .password-wrapper input[type="password"],
 .password-wrapper input[type="text"] {
-    padding-right: 35px; /* 为图标留出空间 */
+    padding-right: 35px;
 }
 
 .toggle-password {
@@ -170,7 +176,7 @@ input[type="password"]::-webkit-reveal {
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    margin-bottom: clamp(0.6rem, 1.5vh, 1rem);
+    margin-bottom: 8px;
 }
 .status-indicator {
     width: 10px;
@@ -197,10 +203,11 @@ input[type="password"]::-webkit-reveal {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 0.6rem;
+    /* [MODIFIED] 恢复为 auto，因为不再拉伸，按钮自然紧跟内容 */
     margin-top: auto;
 }
 .btn {
-    padding: clamp(0.5rem, 1.2vh, 0.7rem) 0.4rem;
+    padding: 6px 4px;
     font-size: inherit;
     font-weight: 600;
     border: 1px solid transparent;
