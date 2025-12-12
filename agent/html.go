@@ -106,6 +106,27 @@ const htmlPage = `<!DOCTYPE html>
         #panel-help pre code { background: none; padding: 0; }
         #panel-help ul, #panel-help ol { line-height: 1.6; }
         #panel-help blockquote { border-left: 4px solid #ccc; padding-left: 15px; color: #666; margin-left: 0; }
+        
+        /* [ADDED] Progress Bar Styles */
+        #uploadProgressContainer {
+            display: none; /* Initially hidden */
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            margin-top: 10px;
+            height: 20px;
+            overflow: hidden;
+        }
+        #uploadProgressBar {
+            width: 0%;
+            height: 100%;
+            background-color: #27ae60;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-size: 12px;
+            transition: width 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -199,11 +220,24 @@ const htmlPage = `<!DOCTYPE html>
                     2. 更新 Tomcat ➔ 上传 <code>apache-tomcat-*.zip</code><br>
                     3. 全量更新 UEM ➔ 上传 <code>UEM-*.tar.gz</code>
                 </div>
-                <div style="display:flex;gap:10px;align-items:center">
-                    <input type="file" id="fileInput">
-                    <button onclick="uploadFile()">上传到服务器</button>
-                    <span id="uploadStatus" style="font-weight:bold"></span>
+                
+                <!-- [MODIFIED] New Upload UI -->
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="color:#666; font-size:13px; width:80px;">上传路径:</span>
+                        <input type="text" id="uploadPathInput" value="/root" style="flex:1; font-family:monospace;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="color:#666; font-size:13px; width:80px;">选择文件:</span>
+                        <input type="file" id="fileInput" style="flex:1;">
+                        <button id="uploadButton" onclick="uploadFileWithProgress()">上传</button>
+                    </div>
+                    <div id="uploadProgressContainer">
+                        <div id="uploadProgressBar"></div>
+                    </div>
+                    <div id="uploadStatus" style="font-weight:bold; font-size:12px; height: 16px;"></div>
                 </div>
+
             </div>
 
             <!-- 3. 执行操作 -->
@@ -443,29 +477,85 @@ const htmlPage = `<!DOCTYPE html>
         }
     }
 
-    // ==========================================
-    // 核心逻辑：上传成功后自动检测
-    // ==========================================
-    async function uploadFile() {
-         const i=document.getElementById('fileInput');
-         if(!i.files.length)return;
-         event.target.disabled=true;
-         const fd=new FormData();
-         fd.append("file", i.files[0]);
-         try {
-             const r=await fetch(UPLOAD_URL, {method:'POST', body:fd});
-             if(r.ok) {
-                 document.getElementById('uploadStatus').innerHTML = "<span class='pass'>✅ 成功</span>";
-                 // 上传后自动检测当前路径，点亮按钮
+    // [MODIFIED] Replaced old uploadFile with new version supporting progress bar
+    function uploadFileWithProgress() {
+        const fileInput = document.getElementById('fileInput');
+        const pathInput = document.getElementById('uploadPathInput');
+        const uploadButton = document.getElementById('uploadButton');
+        const statusDiv = document.getElementById('uploadStatus');
+        const progressContainer = document.getElementById('uploadProgressContainer');
+        const progressBar = document.getElementById('uploadProgressBar');
+
+        if (fileInput.files.length === 0) {
+            alert('请先选择一个文件');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const path = pathInput.value.trim();
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('path', path);
+
+        uploadButton.disabled = true;
+        statusDiv.innerHTML = '准备上传...';
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '';
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', UPLOAD_URL, true);
+
+        xhr.upload.onprogress = function(event) {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                progressBar.style.width = percentComplete + '%';
+                progressBar.textContent = percentComplete + '%';
+                statusDiv.innerHTML = '正在上传... ' + percentComplete + '%';
+            }
+        };
+
+        xhr.onload = function() {
+            uploadButton.disabled = false;
+            if (xhr.status === 200) {
+                progressBar.style.backgroundColor = '#27ae60';
+                statusDiv.innerHTML = '<span class="pass">✅ 上传并处理成功!</span>';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    alert('成功: ' + response.message);
+                } catch (e) {
+                    alert('上传成功，但服务器响应异常。');
+                }
+                // 自动检测工作目录，以启用脚本按钮
                 checkManualPath();
             } else {
-                 throw await r.text();
-             }
-         } catch(e){
-            alert("Error: "+e);
-        }
-         event.target.disabled=false;
-     }
+                progressBar.style.backgroundColor = '#c0392b';
+                statusDiv.innerHTML = '<span class="fail">❌ 上传失败!</span>';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    alert('失败: ' + (response.error || '未知错误') + '\\n' + (response.details || ''));
+                } catch (e) {
+                    alert('上传失败: ' + xhr.statusText);
+                }
+            }
+        };
+
+        xhr.onerror = function() {
+            uploadButton.disabled = false;
+            progressBar.style.backgroundColor = '#c0392b';
+            statusDiv.innerHTML = '<span class="fail">❌ 网络错误!</span>';
+            alert('上传失败: 无法连接到服务器。');
+        };
+        
+        xhr.send(formData);
+    }
+    
+    // Keep the old uploadFile function for compatibility if needed, or remove it.
+    // For this change, we are replacing its call, so it's not strictly necessary.
+    async function uploadFile() {
+        alert("此功能已被新版上传取代，请使用带进度条的上传。");
+    }
+
 
     // ==========================================
     // 核心逻辑：执行脚本 (带参数)
@@ -612,10 +702,81 @@ const htmlPage = `<!DOCTYPE html>
        },
        switchDB: function(db) { this.currentDB = db; this.loadAll(); },
        loadAll: async function() { await Promise.all([ this.loadMetrics(), this.loadTables(), this.loadProcesslist(), this.loadRepl() ]); },
-       loadMetrics: async function() { try { const res = await fetch(API_BASE + 'baseservices/mysql/metrics/' + this.currentDB); const arr = await res.json(); if (!arr || arr.length === 0) return; const m = arr[0]; document.getElementById('mysql-threads').innerText = m.threads; document.getElementById('mysql-qps').innerText = m.qps; document.getElementById('mysql-connections').innerText = m.max_connections; document.getElementById('mysql-uptime').innerText = m.uptime_str; const now = new Date().toLocaleTimeString(); if (this.charts.metric.data.labels.length > 20) { this.charts.metric.data.labels.shift(); this.charts.metric.data.datasets.forEach(ds => ds.data.shift()); } this.charts.metric.data.labels.push(now); this.charts.metric.data.datasets[0].data.push(m.threads); this.charts.metric.data.datasets[1].data.push(m.qps); this.charts.metric.update(); } catch (e) { console.error('mysql.loadMetrics', e); } },
-       loadTables: async function() { try { const res = await fetch(API_BASE + 'baseservices/mysql/tables/' + this.currentDB); const data = await res.json(); if (!Array.isArray(data)) return; this.charts.size.data.labels = data.map(d => d.name); this.charts.size.data.datasets[0].data = data.map(d => d.size_mb); this.charts.size.update(); this.charts.ops.data.labels = data.map(d => d.name); this.charts.ops.data.datasets[0].data = data.map(d => d.ops); this.charts.ops.update(); } catch (e) { console.error('mysql.loadTables', e); } },
-       loadProcesslist: async function() { try { const res = await fetch(API_BASE + 'baseservices/mysql/processlist/' + this.currentDB); const data = await res.json(); const filter = document.getElementById('mysql-slowFilter').value.toLowerCase(); const tbody = document.querySelector('#mysql-slowQueryTable tbody'); tbody.innerHTML = ''; (data || []).forEach(q => { if (filter && (!q.info || !q.info.toLowerCase().includes(filter))) return; tbody.innerHTML += '<tr><td>' + q.id + '</td><td>' + q.user + '</td><td>' + q.host + '</td><td>' + q.db + '</td><td>' + q.command + '</td><td>' + q.time + '</td><td>' + q.state + '</td><td>' + escapeHtml(q.info) + '</td></tr>'; }); } catch (e) { console.error('mysql.loadProcesslist', e); } },
-       loadRepl: async function() { try { const res = await fetch(API_BASE + 'baseservices/mysql/replstatus/' + this.currentDB); const r = await res.json(); document.getElementById('mysql-replStatus').innerHTML = 'Role: ' + r.role + ' | Slave Running: <span class="' + (r.slave_running ? 'pass' : 'fail') + '">' + r.slave_running + '</span> | Delay(s): ' + r.seconds_behind; if (this.charts.repl.data.labels.length > 20) { this.charts.repl.data.labels.shift(); this.charts.repl.data.datasets[0].data.shift(); } this.charts.repl.data.labels.push(new Date().toLocaleTimeString()); this.charts.repl.data.datasets[0].data.push(r.seconds_behind || 0); this.charts.repl.update(); } catch (e) { console.error('mysql.loadRepl', e); } },
+       // [MODIFIED] Added error handling for loadMetrics
+       loadMetrics: async function() { 
+           try { 
+               const res = await fetch(API_BASE + 'baseservices/mysql/metrics/' + this.currentDB); 
+               if (!res.ok) throw new Error(await res.text());
+               const arr = await res.json(); 
+               if (!arr || arr.length === 0) return; 
+               const m = arr[0]; 
+               document.getElementById('mysql-threads').innerText = m.threads; 
+               document.getElementById('mysql-qps').innerText = m.qps; 
+               document.getElementById('mysql-connections').innerText = m.max_connections; 
+               document.getElementById('mysql-uptime').innerText = m.uptime_str; 
+               const now = new Date().toLocaleTimeString(); 
+               if (this.charts.metric.data.labels.length > 20) { this.charts.metric.data.labels.shift(); this.charts.metric.data.datasets.forEach(ds => ds.data.shift()); } 
+               this.charts.metric.data.labels.push(now); 
+               this.charts.metric.data.datasets[0].data.push(m.threads); 
+               this.charts.metric.data.datasets[1].data.push(m.qps); 
+               this.charts.metric.update(); 
+           } catch (e) { 
+               console.error('mysql.loadMetrics', e); 
+               document.getElementById('mysql-threads').innerText = 'Err';
+               document.getElementById('mysql-qps').innerText = 'Err';
+           } 
+       },
+       // [MODIFIED] Added error handling for loadTables
+       loadTables: async function() { 
+           try { 
+               const res = await fetch(API_BASE + 'baseservices/mysql/tables/' + this.currentDB); 
+               if (!res.ok) throw new Error(await res.text());
+               const data = await res.json(); 
+               if (!Array.isArray(data)) return; 
+               this.charts.size.data.labels = data.map(d => d.name); 
+               this.charts.size.data.datasets[0].data = data.map(d => d.size_mb); 
+               this.charts.size.update(); 
+               this.charts.ops.data.labels = data.map(d => d.name); 
+               this.charts.ops.data.datasets[0].data = data.map(d => d.ops); 
+               this.charts.ops.update(); 
+           } catch (e) { 
+               console.error('mysql.loadTables', e); 
+           } 
+       },
+       // [MODIFIED] Added error handling for loadProcesslist
+       loadProcesslist: async function() { 
+           try { 
+               const res = await fetch(API_BASE + 'baseservices/mysql/processlist/' + this.currentDB); 
+               if (!res.ok) throw new Error(await res.text());
+               const data = await res.json(); 
+               const filter = document.getElementById('mysql-slowFilter').value.toLowerCase(); 
+               const tbody = document.querySelector('#mysql-slowQueryTable tbody'); 
+               tbody.innerHTML = ''; 
+               (data || []).forEach(q => { 
+                   if (filter && (!q.info || !q.info.toLowerCase().includes(filter))) return; 
+                   tbody.innerHTML += '<tr><td>' + q.id + '</td><td>' + q.user + '</td><td>' + q.host + '</td><td>' + q.db + '</td><td>' + q.command + '</td><td>' + q.time + '</td><td>' + q.state + '</td><td>' + escapeHtml(q.info) + '</td></tr>'; 
+               }); 
+           } catch (e) { 
+               console.error('mysql.loadProcesslist', e); 
+               document.querySelector('#mysql-slowQueryTable tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:red;">Connection Failed</td></tr>';
+           } 
+       },
+       // [MODIFIED] Added error handling for loadRepl
+       loadRepl: async function() { 
+           try { 
+               const res = await fetch(API_BASE + 'baseservices/mysql/replstatus/' + this.currentDB); 
+               if (!res.ok) throw new Error(await res.text());
+               const r = await res.json(); 
+               document.getElementById('mysql-replStatus').innerHTML = 'Role: ' + r.role + ' | Slave Running: <span class="' + (r.slave_running ? 'pass' : 'fail') + '">' + r.slave_running + '</span> | Delay(s): ' + r.seconds_behind; 
+               if (this.charts.repl.data.labels.length > 20) { this.charts.repl.data.labels.shift(); this.charts.repl.data.datasets[0].data.shift(); } 
+               this.charts.repl.data.labels.push(new Date().toLocaleTimeString()); 
+               this.charts.repl.data.datasets[0].data.push(r.seconds_behind || 0); 
+               this.charts.repl.update(); 
+           } catch (e) { 
+               console.error('mysql.loadRepl', e); 
+               document.getElementById('mysql-replStatus').innerHTML = '<span class="fail">Connection Failed</span>';
+           } 
+       },
        execSQL: async function() { const sql = document.getElementById('mysql-sqlInput').value.trim(); if (!sql) return; const res = await fetch(API_BASE + 'baseservices/mysql/execsql/' + this.currentDB, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) }); const result = await res.json(); const div = document.getElementById('mysql-sqlResult'); if(result.error) { div.innerHTML = '<div style="color:red; padding:10px;">Error: ' + escapeHtml(result.error) + '</div>'; return; } if(!result.columns || result.columns.length === 0) { div.innerHTML = '<div style="padding:10px; color:#666;">Query executed successfully. No rows returned.</div>'; return; } let tableHtml = '<table class="sql-table"><thead><tr>'; result.columns.forEach(col => { tableHtml += '<th>' + escapeHtml(col) + '</th>'; }); tableHtml += '</tr></thead><tbody>'; if(result.rows) { result.rows.forEach(row => { tableHtml += '<tr>'; row.forEach(cell => { tableHtml += '<td>' + escapeHtml(cell) + '</td>'; }); tableHtml += '</tr>'; }); } tableHtml += '</tbody></table>'; div.innerHTML = tableHtml; }
     };
 </script>

@@ -19,18 +19,49 @@ import (
 
 // --- 文件上传 ---
 func handleUpload(c *gin.Context) {
+	// [MODIFIED] 1. 获取用户指定的路径，默认为 /root
+	targetDir := c.PostForm("path")
+	if targetDir == "" {
+		targetDir = "/root"
+	}
+
+	// [MODIFIED] 2. 获取文件
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.String(400, "Bad Request")
+		c.JSON(400, gin.H{"error": "未接收到文件"})
 		return
 	}
-	dst := filepath.Join(UploadTargetDir, file.Filename)
+
+	// [MODIFIED] 3. 确保目录存在
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		c.JSON(500, gin.H{"error": fmt.Sprintf("无法创建目录 %s: %v", targetDir, err)})
+		return
+	}
+
+	// [MODIFIED] 4. 保存文件
+	dst := filepath.Join(targetDir, file.Filename)
 	if err := c.SaveUploadedFile(file, dst); err != nil {
-		c.String(500, err.Error())
+		c.JSON(500, gin.H{"error": fmt.Sprintf("保存文件失败: %v", err)})
 		return
 	}
-	_ = exec.Command("tar", "-zxvf", dst, "-C", UploadTargetDir).Run()
-	c.String(200, "OK")
+
+	// [MODIFIED] 5. 解压文件 (仅针对 .tar.gz)
+	if strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz") {
+		cmd := exec.Command("tar", "-zxvf", dst, "-C", targetDir)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// 即使解压失败，也返回详细信息
+			c.JSON(500, gin.H{
+				"message": "文件上传成功，但解压失败",
+				"error":   err.Error(),
+				"details": string(output),
+			})
+			return
+		}
+	}
+
+	// [MODIFIED] 6. 返回成功 JSON
+	c.JSON(200, gin.H{"message": "上传并处理成功", "path": dst})
 }
 
 func handleUploadAny(c *gin.Context) {
