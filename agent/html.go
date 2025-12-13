@@ -89,6 +89,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
         .btn-dl-log:hover { background: #27ae60; color: white; border-color: #27ae60; }
         input[type="file"], input[type="text"], textarea, select { border: 1px solid #ccc; padding: 5px; background: white; font-size: 13px; border-radius: 4px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; } /* [ADDED] */
         .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
         .about-table td { padding: 10px; }
         .about-table tr:not(:last-child) td { border-bottom: 1px solid #f0f0f0; }
@@ -141,6 +142,13 @@ const htmlPageTemplate = `<!DOCTYPE html>
             font-size: 12px;
             transition: width 0.3s ease;
         }
+        /* [ADDED] Styles for new tables */
+        .proc-table { font-size: 12px; }
+        .proc-table td, .proc-table th { padding: 5px; }
+        .proc-table .command-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .crontab-list { list-style: none; padding: 0; margin: 0; font-family: monospace; font-size: 13px; background: #f8f9fa; border-radius: 4px; padding: 10px; }
+        .crontab-list li { padding: 4px 0; border-bottom: 1px solid #eee; }
+        .crontab-list li:last-child { border-bottom: none; }
     </style>
 </head>
 <body>
@@ -180,7 +188,20 @@ const htmlPageTemplate = `<!DOCTYPE html>
             </div>
             <div>
                 <div class="card"><h3>🚀 UEM 服务监控</h3><div id="uemStatusBox"><p>检测 UEM 安装状态...</p></div></div>
-                <div class="card"><h3>🗄️ MinIO 检测</h3><table id="minioTable"><tbody><tr><td>加载中...</td></tr></tbody></table></div>
+            </div>
+        </div>
+        <div class="grid-3">
+            <div class="card">
+                <h3><i class="fas fa-microchip"></i> CPU占用排行 (Top 5)</h3>
+                <div id="topCpuProcs">加载中...</div>
+            </div>
+            <div class="card">
+                <h3><i class="fas fa-memory"></i> 内存占用排行 (Top 5)</h3>
+                <div id="topMemProcs">加载中...</div>
+            </div>
+            <div class="card">
+                <h3><i class="far fa-clock"></i> 计划任务 (/etc/crontab)</h3>
+                <div id="rootCrontab" style="max-height: 200px; overflow-y: auto;">加载中...</div>
             </div>
         </div>
         <div class="grid-2">
@@ -206,6 +227,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
                 <div id="tcpConnCountBox" style="font-size: 2em; font-weight: bold; text-align: center; padding: 20px;">加载中...</div>
             </div>
         </div>
+        <div class="card"><h3>🗄️ MinIO 检测</h3><table id="minioTable"><tbody><tr><td>加载中...</td></tr></tbody></table></div>
     </div>
     
     <div id="panel-deps" class="panel"><div class="container-box" style="max-width: 1000px;"><div class="card"><h3>💿 ISO 挂载 (配置本地 YUM)</h3><div style="display:flex; flex-direction:column; gap:10px;"><div style="display:flex; align-items:center; gap:10px;"><span style="width:80px; color:#666;">上传镜像:</span><input type="file" id="isoInput" accept=".iso" style="width:300px;"><button onclick="mountIso()">上传并挂载</button></div><div style="display:flex; align-items:center; gap:10px;"><span style="width:80px; color:#666;">本地路径:</span><input type="text" id="isoPathInput" placeholder="/tmp/kylin.iso" style="width:300px;"><button class="btn-orange" onclick="mountLocalIso()">使用本地文件</button></div></div><div id="yum-log" class="term-box" style="height:120px;margin-top:10px">等待操作...</div></div><div class="card"><h3>🛠️ RPM 安装</h3><div style="display:flex;gap:10px"><input type="file" id="rpmInput" accept=".rpm"><button onclick="installRpm()">执行安装</button></div><div id="rpm-log" class="term-box" style="height:120px;margin-top:10px"></div></div></div></div>
@@ -686,6 +708,8 @@ const htmlPageTemplate = `<!DOCTYPE html>
             const uemBox = document.getElementById('uemStatusBox');
             if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM</div>'; }
              else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='run'?'<span class="pass">running</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
+            
+            // [RESTORED] Original MinIO rendering logic
             let mHtml = !data.minio_info.bucket_exists ? '<tr><td>Err</td><td colspan="2">桶不存在/未连接</td></tr>' : '<tr><td>nqsky</td><td>'+data.minio_info.policy+'</td><td>'+(data.minio_info.policy==='public'?'<span class="pass">OK</span>':'<button class="btn-sm btn-fix" onclick="fixMinio()">Public</button>')+'</td></tr>';
             document.getElementById('minioTable').innerHTML = mHtml;
 
@@ -705,11 +729,52 @@ const htmlPageTemplate = `<!DOCTYPE html>
                 netstatBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#999;">没有监视中的端口或获取失败</td></tr>';
             }
 
+            // [ADDED] Render Top Processes and Crontab
+            renderTopProcs(data.sys_info.top_cpu_procs, 'topCpuProcs');
+            renderTopProcs(data.sys_info.top_mem_procs, 'topMemProcs');
+            renderCrontab(data.sys_info.root_crontab, 'rootCrontab');
+
         } catch(e) {
             console.error("Error in runCheck:", e);
         }
     }
     
+    // [ADDED] Function to render top processes
+    function renderTopProcs(procs, elementId) {
+        const container = document.getElementById(elementId);
+        if (!procs || procs.length === 0) {
+            container.innerHTML = '无数据';
+            return;
+        }
+        let html = '<table class="proc-table"><thead><tr><th>PID</th><th>User</th><th>%CPU</th><th>%MEM</th><th>Command</th></tr></thead><tbody>';
+        procs.forEach(function(p) {
+            html += '<tr>' +
+                '<td>' + escapeHtml(p.pid) + '</td>' +
+                '<td>' + escapeHtml(p.user) + '</td>' +
+                '<td>' + escapeHtml(p.cpu) + '</td>' +
+                '<td>' + escapeHtml(p.mem) + '</td>' +
+                '<td class="command-cell" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</td>' +
+            '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    // [ADDED] Function to render crontab
+    function renderCrontab(lines, elementId) {
+        const container = document.getElementById(elementId);
+        if (!lines || lines.length === 0) {
+            container.innerHTML = '无数据';
+            return;
+        }
+        let html = '<ul class="crontab-list">';
+        lines.forEach(function(line) {
+            html += '<li>' + escapeHtml(line) + '</li>';
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+    }
+
     function row(name, val, pass) { return '<tr><td>'+name+'</td><td>'+val+'</td><td>'+(pass?'<span class="pass">OK</span>':'<span class="fail">Fail</span>')+'</td></tr>'; }
     async function fixSelinux() { if(confirm("关闭 SELinux (需重启)？")) fetch('api/sec/selinux',{method:'POST'}).then(r=>r.text()).then(t=>{ alert(t); runCheck(); }); }
     async function fixFirewall() { if(confirm("关闭防火墙？")) fetch('api/sec/firewall',{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }

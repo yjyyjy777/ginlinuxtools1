@@ -16,6 +16,58 @@ import (
 	"golang.org/x/net/context"
 )
 
+// [ADDED] Helper function to get top processes
+func getTopProcs(sortBy string) []ProcessInfo {
+	var procs []ProcessInfo
+	// Use ps command to get top 5 processes. The `c` option gives the command name without the full path.
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("ps aux --sort=-%s | head -n 6", sortBy))
+	out, err := cmd.Output()
+	if err != nil {
+		return procs
+	}
+
+	lines := strings.Split(string(out), "\n")
+	// Skip header line
+	for i, line := range lines {
+		if i == 0 || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 11 {
+			// Combine command parts
+			command := strings.Join(fields[10:], " ")
+			procs = append(procs, ProcessInfo{
+				User:    fields[0],
+				PID:     fields[1],
+				CPU:     fields[2],
+				Mem:     fields[3],
+				Command: command,
+			})
+		}
+	}
+	return procs
+}
+
+// [MODIFIED] Helper function to get crontab from /etc/crontab file
+func getRootCrontab() []string {
+	out, err := os.ReadFile("/etc/crontab")
+	if err != nil {
+		return []string{"Error reading /etc/crontab: " + err.Error()}
+	}
+	lines := strings.Split(string(out), "\n")
+	var filteredLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			filteredLines = append(filteredLines, trimmed)
+		}
+	}
+	if len(filteredLines) == 0 {
+		return []string{"No active (non-commented) cron jobs found in /etc/crontab."}
+	}
+	return filteredLines
+}
+
 // --- 文件上传 ---
 func handleUpload(c *gin.Context) {
 	// [MODIFIED] 1. 获取用户指定的路径，默认为 /root
@@ -141,6 +193,11 @@ func handleCheckEnv(c *gin.Context) {
 	tcpCount, _ := strconv.Atoi(strings.TrimSpace(string(tcpCountOut)))
 	res.SysInfo.TcpConnCount = tcpCount
 
+	// [ADDED] Get Top Processes and Crontab
+	res.SysInfo.TopCPUProcs = getTopProcs("cpu")
+	res.SysInfo.TopMemProcs = getTopProcs("pmem") // pmem or rss, depending on desired memory metric
+	res.SysInfo.RootCrontab = getRootCrontab()
+
 	if o, err := exec.Command("getenforce").Output(); err == nil {
 		res.SecInfo.SELinux = strings.TrimSpace(string(o))
 	} else {
@@ -175,6 +232,7 @@ func handleCheckEnv(c *gin.Context) {
 	}
 	// --- 检查结束 ---
 
+	// [RESTORED] MinIO check logic restored to populate MinioInfo
 	mClient, err := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
 	if err == nil {
 		exists, _ := mClient.BucketExists(context.Background(), MinioBucket)
@@ -188,6 +246,7 @@ func handleCheckEnv(c *gin.Context) {
 			}
 		}
 	}
+
 	c.JSON(200, res)
 }
 

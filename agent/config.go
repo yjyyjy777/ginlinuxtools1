@@ -100,6 +100,15 @@ type SqlResult struct {
 	Error   string     `json:"error,omitempty"`
 }
 
+// [ADDED] ProcessInfo for top-like monitoring
+type ProcessInfo struct {
+	PID     string `json:"pid"`
+	User    string `json:"user"`
+	CPU     string `json:"cpu"`
+	Mem     string `json:"mem"`
+	Command string `json:"command"`
+}
+
 // DiskInfo System Info Structs
 type DiskInfo struct {
 	Mount string `json:"mount"`
@@ -132,6 +141,9 @@ type SysInfo struct {
 	NetTx        float64       `json:"net_tx"`
 	Netstat      []NetstatInfo `json:"netstat"`
 	TcpConnCount int           `json:"tcp_conn_count"`
+	TopCPUProcs  []ProcessInfo `json:"top_cpu_procs"` // [ADDED]
+	TopMemProcs  []ProcessInfo `json:"top_mem_procs"` // [ADDED]
+	RootCrontab  []string      `json:"root_crontab"`  // [ADDED]
 }
 type SecInfo struct {
 	SELinux     string `json:"selinux"`
