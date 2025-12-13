@@ -4,6 +4,7 @@ package main
 // 1. 之前代码中的 \\n 导致 JS 解析为字面量字符 "\n" 而非换行符，致使 Markdown 渲染时所有内容挤在一行。
 //    现已全部替换为 \n，确保 JS 字符串中包含真正的换行符。
 // 2. 保留了 \x60 用于在 JS 字符串中表示反引号，避免与 Go 的 Raw String 冲突。
+// 3. [路径修复] 移除了硬编码的 API_BASE 和 UPLOAD_URL 常量，所有 fetch 和 XHR 请求都使用相对路径，以同时支持根路径和子路径部署。
 
 const htmlPage = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -373,8 +374,6 @@ const htmlPage = `<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 <script>
-    const API_BASE = "api/"; const UPLOAD_URL = "upload";
-    
     let deployTerm, sysTerm, deploySocket, sysSocket, deployFit, sysFit, logSocket, currentPath = "/root";
     let sysChart, netChart; let checkInterval;
 
@@ -418,7 +417,7 @@ const htmlPage = `<!DOCTYPE html>
         logSocket.onmessage = e => { box.innerText += e.data; if(box.innerText.length>50000) box.innerText=box.innerText.substring(box.innerText.length-50000); if(document.getElementById('autoScroll').checked) box.scrollTop=box.scrollHeight; };
         logSocket.onclose = () => { box.innerText += "\n>>> Disconnected"; };
     }
-    function dlLog(key, e) { e.stopPropagation(); window.location.href = API_BASE + 'log/download?key=' + key; }
+    function dlLog(key, e) { e.stopPropagation(); window.location.href = 'api/log/download?key=' + key; }
     function clearLog(){ document.getElementById('logContent').innerText=""; }
     
     // ==========================================
@@ -443,7 +442,7 @@ const htmlPage = `<!DOCTYPE html>
         msgBox.innerHTML = '正在检测...';
 
         try {
-            const res = await fetch(API_BASE + 'check_dir?path=' + encodeURIComponent(path));
+            const res = await fetch('api/check_dir?path=' + encodeURIComponent(path));
             const data = await res.json();
 
             if (data.exists) {
@@ -504,7 +503,7 @@ const htmlPage = `<!DOCTYPE html>
         progressBar.textContent = '';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', UPLOAD_URL, true);
+        xhr.open('POST', "upload", true);
 
         xhr.upload.onprogress = function(event) {
             if (event.lengthComputable) {
@@ -593,7 +592,7 @@ const htmlPage = `<!DOCTYPE html>
     // --- Restored Missing Functions ---
     async function runCheck() {
         try {
-            const resp = await fetch(API_BASE + 'check'); const data = await resp.json();
+            const resp = await fetch('api/check'); const data = await resp.json();
             if(sysChart && data.sys_info.mem_usage !== undefined) {
                 const now = new Date().toLocaleTimeString();
                 if(sysChart.data.labels.length > 20) { sysChart.data.labels.shift(); sysChart.data.datasets.forEach(d => d.data.shift()); netChart.data.labels.shift(); netChart.data.datasets.forEach(d => d.data.shift()); }
@@ -645,30 +644,30 @@ const htmlPage = `<!DOCTYPE html>
     }
     
     function row(name, val, pass) { return '<tr><td>'+name+'</td><td>'+val+'</td><td>'+(pass?'<span class="pass">OK</span>':'<span class="fail">Fail</span>')+'</td></tr>'; }
-    async function fixSelinux() { if(confirm("关闭 SELinux (需重启)？")) fetch(API_BASE+'sec/selinux',{method:'POST'}).then(r=>r.text()).then(t=>{ alert(t); runCheck(); }); }
-    async function fixFirewall() { if(confirm("关闭防火墙？")) fetch(API_BASE+'sec/firewall',{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
-    async function restartService(n) { if(confirm('重启 '+n+' ?')) fetch(API_BASE+'service/restart?name='+n,{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
-    async function fixMinio() { if(confirm("Public?")) fetch(API_BASE+'minio/fix',{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
-    async function fixSsh() { if(confirm("Fix SSH?")) fetch(API_BASE+'fix_ssh',{method:'POST'}).then(r=>r.text()).then(alert); }
+    async function fixSelinux() { if(confirm("关闭 SELinux (需重启)？")) fetch('api/sec/selinux',{method:'POST'}).then(r=>r.text()).then(t=>{ alert(t); runCheck(); }); }
+    async function fixFirewall() { if(confirm("关闭防火墙？")) fetch('api/sec/firewall',{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
+    async function restartService(n) { if(confirm('重启 '+n+' ?')) fetch('api/service/restart?name='+n,{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
+    async function fixMinio() { if(confirm("Public?")) fetch('api/minio/fix',{method:'POST'}).then(r=>r.text()).then(alert).then(runCheck); }
+    async function fixSsh() { if(confirm("Fix SSH?")) fetch('api/fix_ssh',{method:'POST'}).then(r=>r.text()).then(alert); }
     
-    async function fmLoadPath(p) { currentPath=p; document.getElementById('fmPath').innerText=p; const r=await fetch(API_BASE+'fs/list?path='+encodeURIComponent(p)); const fs=await r.json(); let h=''; fs.sort((a,b)=>(a.is_dir===b.is_dir)?0:a.is_dir?-1:1); fs.forEach(f=>{ let n=f.is_dir?'<a class="link-dir" href="javascript:fmLoadPath(\''+f.path+'\')">'+f.name+'</a>':f.name; let act=f.is_dir?'':'<button class="btn-sm" onclick="fmDownload(\''+f.path+'\')">下载</button>'; h+='<tr><td>'+(f.is_dir?'📁':'📄')+' '+n+'</td><td>'+f.size+'</td><td>'+f.mod_time+'</td><td>'+act+'</td></tr>'; }); document.getElementById('fmBody').innerHTML=h; }
+    async function fmLoadPath(p) { currentPath=p; document.getElementById('fmPath').innerText=p; const r=await fetch('api/fs/list?path='+encodeURIComponent(p)); const fs=await r.json(); let h=''; fs.sort((a,b)=>(a.is_dir===b.is_dir)?0:a.is_dir?-1:1); fs.forEach(f=>{ let n=f.is_dir?'<a class="link-dir" href="javascript:fmLoadPath(\''+f.path+'\')">'+f.name+'</a>':f.name; let act=f.is_dir?'':'<button class="btn-sm" onclick="fmDownload(\''+f.path+'\')">下载</button>'; h+='<tr><td>'+(f.is_dir?'📁':'📄')+' '+n+'</td><td>'+f.size+'</td><td>'+f.mod_time+'</td><td>'+act+'</td></tr>'; }); document.getElementById('fmBody').innerHTML=h; }
     function fmUpDir() { let p=currentPath.split('/'); p.pop(); let n=p.join('/'); if(!n)n='/'; fmLoadPath(n); }
-    function fmDownload(p) { window.location.href = API_BASE + 'fs/download?path=' + encodeURIComponent(p); }
+    function fmDownload(p) { window.location.href = 'api/fs/download?path=' + encodeURIComponent(p); }
     function fmRefresh() { fmLoadPath(currentPath); }
-    async function fmDoUpload() { const inp=document.getElementById('fmUploadInput'); const fd=new FormData(); fd.append("file", inp.files[0]); fd.append("path", currentPath); const st=document.getElementById('fmStatus'); st.innerText="Uploading..."; await fetch(API_BASE+'upload_any', {method:'POST', body:fd}); st.innerText="Done"; fmLoadPath(currentPath); }
+    async function fmDoUpload() { const inp=document.getElementById('fmUploadInput'); const fd=new FormData(); fd.append("file", inp.files[0]); fd.append("path", currentPath); const st=document.getElementById('fmStatus'); st.innerText="Uploading..."; await fetch('api/upload_any', {method:'POST', body:fd}); st.innerText="Done"; fmLoadPath(currentPath); }
     
-    async function mountIso() { const inp=document.getElementById('isoInput'); if(!inp.files.length)return; event.target.disabled=true; const fd=new FormData(); fd.append("file",inp.files[0]); const r=await fetch(API_BASE+'iso_mount',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('yum-log'); while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
-    async function mountLocalIso() { const p = document.getElementById('isoPathInput').value; if(!p) return alert("请输入路径"); event.target.disabled=true; const fd=new FormData(); fd.append("path", p); const r=await fetch(API_BASE+'iso_mount_local',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('yum-log'); box.innerText = ">>> 正在使用本地文件挂载...\n"; while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
-    async function installRpm() { const i=document.getElementById('rpmInput'); if(!i.files.length)return; event.target.disabled=true; const fd=new FormData(); fd.append("file",i.files[0]); const r=await fetch(API_BASE+'rpm_install',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('rpm-log'); while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
+    async function mountIso() { const inp=document.getElementById('isoInput'); if(!inp.files.length)return; event.target.disabled=true; const fd=new FormData(); fd.append("file",inp.files[0]); const r=await fetch('api/iso_mount',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('yum-log'); while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
+    async function mountLocalIso() { const p = document.getElementById('isoPathInput').value; if(!p) return alert("请输入路径"); event.target.disabled=true; const fd=new FormData(); fd.append("path", p); const r=await fetch('api/iso_mount_local',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('yum-log'); box.innerText = ">>> 正在使用本地文件挂载...\n"; while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
+    async function installRpm() { const i=document.getElementById('rpmInput'); if(!i.files.length)return; event.target.disabled=true; const fd=new FormData(); fd.append("file",i.files[0]); const r=await fetch('api/rpm_install',{method:'POST',body:fd}); const rd=r.body.getReader(); const d=new TextDecoder(); const box=document.getElementById('rpm-log'); while(true){const{done,value}=await rd.read();if(done)break;box.innerText+=d.decode(value);box.scrollTop=box.scrollHeight;} event.target.disabled=false; }
 
     const redis = {
        allKeys: [], currentFilter: 'all', initialized: false,
        init: function() { if(this.initialized) return; this.fetchInfo(); this.fetchAllKeys(); this.initialized = true; },
-       fetchInfo: async function() { try { const res = await fetch(API_BASE + 'baseservices/redis/info'); if (!res.ok) throw new Error('Failed to fetch info'); const info = await res.json(); const metrics = {'redis_version': 'Version', 'uptime_in_days': 'Uptime (Days)', 'connected_clients': 'Clients', 'used_memory_human': 'Memory', 'total_commands_processed': 'Commands', 'instantaneous_ops_per_sec': 'Ops/Sec'}; const grid = document.getElementById('redis-info-grid'); grid.innerHTML = ''; for (const key in metrics) { if (info[key]) grid.innerHTML += '<div class="card"><h3>' + metrics[key] + '</h3><p style="font-size:1.5em;font-weight:bold;">' + info[key] + '</p></div>'; } } catch (e) { document.getElementById('redis-info-grid').innerHTML = '<p class="fail">Failed to load Redis stats.</p>'; } },
-       fetchAllKeys: async function() { try { const res = await fetch(API_BASE + 'baseservices/redis/keys'); if (!res.ok) throw new Error('Failed to fetch keys'); this.allKeys = await res.json() || []; this.allKeys.sort((a, b) => a.key.localeCompare(b.key)); this.renderTable(); } catch (e) { document.getElementById('redis-keys-table-container').innerHTML = '<p class="fail">Failed to load keys.</p>'; } },
+       fetchInfo: async function() { try { const res = await fetch('api/baseservices/redis/info'); if (!res.ok) throw new Error('Failed to fetch info'); const info = await res.json(); const metrics = {'redis_version': 'Version', 'uptime_in_days': 'Uptime (Days)', 'connected_clients': 'Clients', 'used_memory_human': 'Memory', 'total_commands_processed': 'Commands', 'instantaneous_ops_per_sec': 'Ops/Sec'}; const grid = document.getElementById('redis-info-grid'); grid.innerHTML = ''; for (const key in metrics) { if (info[key]) grid.innerHTML += '<div class="card"><h3>' + metrics[key] + '</h3><p style="font-size:1.5em;font-weight:bold;">' + info[key] + '</p></div>'; } } catch (e) { document.getElementById('redis-info-grid').innerHTML = '<p class="fail">Failed to load Redis stats.</p>'; } },
+       fetchAllKeys: async function() { try { const res = await fetch('api/baseservices/redis/keys'); if (!res.ok) throw new Error('Failed to fetch keys'); this.allKeys = await res.json() || []; this.allKeys.sort((a, b) => a.key.localeCompare(b.key)); this.renderTable(); } catch (e) { document.getElementById('redis-keys-table-container').innerHTML = '<p class="fail">Failed to load keys.</p>'; } },
        renderTable: function() { let html = '<table><thead><tr><th style="width:60%">Key</th><th style="width:15%">Type</th><th style="width:25%">Actions</th></tr></thead><tbody>'; this.allKeys.forEach(item => { html += '<tr><td class="redis-key-cell" title="' + escapeHtml(item.key) + '">' + escapeHtml(item.key) + '</td><td>' + escapeHtml(item.type) + '</td><td><button class="btn-sm" onclick="redis.viewEditKey(\'' + item.key + '\', \'' + item.type + '\')">View/Edit</button> <button class="btn-sm btn-red" onclick="redis.deleteKey(\'' + item.key + '\')">Delete</button></td></tr>'; }); html += '</tbody></table>'; document.getElementById('redis-keys-table-container').innerHTML = html; },
-       deleteKey: async function(key) { if (!confirm('确认删除: ' + key + '?')) return; await fetch(API_BASE + 'baseservices/redis/key?key=' + encodeURIComponent(key), { method: 'DELETE' }); this.fetchAllKeys(); },
-       viewEditKey: async function(key, type) { document.getElementById('modal-title').textContent = 'Editing ' + type + ': ' + key; document.getElementById('modal-body').innerHTML = '<p>Loading...</p>'; document.getElementById('modal-backdrop').style.display = 'block'; document.getElementById('modal').style.display = 'block'; const res = await fetch(API_BASE + 'baseservices/redis/value?type=' + type + '&key=' + encodeURIComponent(key)); const data = await res.json(); this.renderModalContent(data); },
+       deleteKey: async function(key) { if (!confirm('确认删除: ' + key + '?')) return; await fetch('api/baseservices/redis/key?key=' + encodeURIComponent(key), { method: 'DELETE' }); this.fetchAllKeys(); },
+       viewEditKey: async function(key, type) { document.getElementById('modal-title').textContent = 'Editing ' + type + ': ' + key; document.getElementById('modal-body').innerHTML = '<p>Loading...</p>'; document.getElementById('modal-backdrop').style.display = 'block'; document.getElementById('modal').style.display = 'block'; const res = await fetch('api/baseservices/redis/value?type=' + type + '&key=' + encodeURIComponent(key)); const data = await res.json(); this.renderModalContent(data); },
        renderModalContent: function(data) {
           let body = '';
           switch (data.type) {
@@ -679,11 +678,11 @@ const htmlPage = `<!DOCTYPE html>
           }
           document.getElementById('modal-body').innerHTML = body;
        },
-       saveStringValue: async function(key) { const value = document.getElementById('stringValue').value; await fetch(API_BASE + 'baseservices/redis/value?type=string&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); this.hideModal(); },
-       addListItem: async function(key) { const value = document.getElementById('newListItem').value; if (!value) return; await fetch(API_BASE + 'baseservices/redis/value?type=list&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); this.viewEditKey(key, 'list'); },
-       deleteListItem: async function(key, value) { await fetch(API_BASE + 'baseservices/redis/value?type=list&key=' + encodeURIComponent(key) + '&value=' + encodeURIComponent(value), { method: 'DELETE' }); this.viewEditKey(key, 'list'); },
-       addHashField: async function(key) { const field = document.getElementById('newHashField').value; const value = document.getElementById('newHashValue').value; if (!field) return; await fetch(API_BASE + 'baseservices/redis/value?type=hash&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ field, value }) }); this.viewEditKey(key, 'hash'); },
-       deleteHashField: async function(key, field) { await fetch(API_BASE + 'baseservices/redis/value?type=hash&key=' + encodeURIComponent(key) + '&field=' + encodeURIComponent(field), { method: 'DELETE' }); this.viewEditKey(key, 'hash'); },
+       saveStringValue: async function(key) { const value = document.getElementById('stringValue').value; await fetch('api/baseservices/redis/value?type=string&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); this.hideModal(); },
+       addListItem: async function(key) { const value = document.getElementById('newListItem').value; if (!value) return; await fetch('api/baseservices/redis/value?type=list&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); this.viewEditKey(key, 'list'); },
+       deleteListItem: async function(key, value) { await fetch('api/baseservices/redis/value?type=list&key=' + encodeURIComponent(key) + '&value=' + encodeURIComponent(value), { method: 'DELETE' }); this.viewEditKey(key, 'list'); },
+       addHashField: async function(key) { const field = document.getElementById('newHashField').value; const value = document.getElementById('newHashValue').value; if (!field) return; await fetch('api/baseservices/redis/value?type=hash&key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ field, value }) }); this.viewEditKey(key, 'hash'); },
+       deleteHashField: async function(key, field) { await fetch('api/baseservices/redis/value?type=hash&key=' + encodeURIComponent(key) + '&field=' + encodeURIComponent(field), { method: 'DELETE' }); this.viewEditKey(key, 'hash'); },
        hideModal: function() { document.getElementById('modal-backdrop').style.display = 'none'; document.getElementById('modal').style.display = 'none'; }
     };
     document.getElementById('modal-close-btn').addEventListener('click', () => redis.hideModal());
@@ -705,7 +704,7 @@ const htmlPage = `<!DOCTYPE html>
        // [MODIFIED] Added error handling for loadMetrics
        loadMetrics: async function() { 
            try { 
-               const res = await fetch(API_BASE + 'baseservices/mysql/metrics/' + this.currentDB); 
+               const res = await fetch('api/baseservices/mysql/metrics/' + this.currentDB); 
                if (!res.ok) throw new Error(await res.text());
                const arr = await res.json(); 
                if (!arr || arr.length === 0) return; 
@@ -729,7 +728,7 @@ const htmlPage = `<!DOCTYPE html>
        // [MODIFIED] Added error handling for loadTables
        loadTables: async function() { 
            try { 
-               const res = await fetch(API_BASE + 'baseservices/mysql/tables/' + this.currentDB); 
+               const res = await fetch('api/baseservices/mysql/tables/' + this.currentDB); 
                if (!res.ok) throw new Error(await res.text());
                const data = await res.json(); 
                if (!Array.isArray(data)) return; 
@@ -746,7 +745,7 @@ const htmlPage = `<!DOCTYPE html>
        // [MODIFIED] Added error handling for loadProcesslist
        loadProcesslist: async function() { 
            try { 
-               const res = await fetch(API_BASE + 'baseservices/mysql/processlist/' + this.currentDB); 
+               const res = await fetch('api/baseservices/mysql/processlist/' + this.currentDB); 
                if (!res.ok) throw new Error(await res.text());
                const data = await res.json(); 
                const filter = document.getElementById('mysql-slowFilter').value.toLowerCase(); 
@@ -764,7 +763,7 @@ const htmlPage = `<!DOCTYPE html>
        // [MODIFIED] Added error handling for loadRepl
        loadRepl: async function() { 
            try { 
-               const res = await fetch(API_BASE + 'baseservices/mysql/replstatus/' + this.currentDB); 
+               const res = await fetch('api/baseservices/mysql/replstatus/' + this.currentDB); 
                if (!res.ok) throw new Error(await res.text());
                const r = await res.json(); 
                document.getElementById('mysql-replStatus').innerHTML = 'Role: ' + r.role + ' | Slave Running: <span class="' + (r.slave_running ? 'pass' : 'fail') + '">' + r.slave_running + '</span> | Delay(s): ' + r.seconds_behind; 
@@ -777,7 +776,7 @@ const htmlPage = `<!DOCTYPE html>
                document.getElementById('mysql-replStatus').innerHTML = '<span class="fail">Connection Failed</span>';
            } 
        },
-       execSQL: async function() { const sql = document.getElementById('mysql-sqlInput').value.trim(); if (!sql) return; const res = await fetch(API_BASE + 'baseservices/mysql/execsql/' + this.currentDB, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) }); const result = await res.json(); const div = document.getElementById('mysql-sqlResult'); if(result.error) { div.innerHTML = '<div style="color:red; padding:10px;">Error: ' + escapeHtml(result.error) + '</div>'; return; } if(!result.columns || result.columns.length === 0) { div.innerHTML = '<div style="padding:10px; color:#666;">Query executed successfully. No rows returned.</div>'; return; } let tableHtml = '<table class="sql-table"><thead><tr>'; result.columns.forEach(col => { tableHtml += '<th>' + escapeHtml(col) + '</th>'; }); tableHtml += '</tr></thead><tbody>'; if(result.rows) { result.rows.forEach(row => { tableHtml += '<tr>'; row.forEach(cell => { tableHtml += '<td>' + escapeHtml(cell) + '</td>'; }); tableHtml += '</tr>'; }); } tableHtml += '</tbody></table>'; div.innerHTML = tableHtml; }
+       execSQL: async function() { const sql = document.getElementById('mysql-sqlInput').value.trim(); if (!sql) return; const res = await fetch('api/baseservices/mysql/execsql/' + this.currentDB, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) }); const result = await res.json(); const div = document.getElementById('mysql-sqlResult'); if(result.error) { div.innerHTML = '<div style="color:red; padding:10px;">Error: ' + escapeHtml(result.error) + '</div>'; return; } if(!result.columns || result.columns.length === 0) { div.innerHTML = '<div style="padding:10px; color:#666;">Query executed successfully. No rows returned.</div>'; return; } let tableHtml = '<table class="sql-table"><thead><tr>'; result.columns.forEach(col => { tableHtml += '<th>' + escapeHtml(col) + '</th>'; }); tableHtml += '</tr></thead><tbody>'; if(result.rows) { result.rows.forEach(row => { tableHtml += '<tr>'; row.forEach(cell => { tableHtml += '<td>' + escapeHtml(cell) + '</td>'; }); tableHtml += '</tr>'; }); } tableHtml += '</tbody></table>'; div.innerHTML = tableHtml; }
     };
 </script>
 </body>
