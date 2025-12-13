@@ -137,40 +137,6 @@ header {
 .form-row { display: flex; flex-direction: row; gap: 0.7rem; }
 .half-width { flex: 1; }
 
-/* --- 密码框样式 --- */
-.password-wrapper {
-    position: relative;
-}
-
-input[type="password"]::-ms-reveal,
-input[type="password"]::-ms-clear {
-    display: none;
-}
-input[type="password"]::-webkit-reveal {
-    display: none;
-}
-
-.password-wrapper input[type="password"],
-.password-wrapper input[type="text"] {
-    padding-right: 35px;
-}
-
-.toggle-password {
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    cursor: pointer;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-}
-.toggle-password:hover {
-    color: var(--text-primary);
-}
-
 /* --- 5. 状态与按钮 --- */
 .status-area {
     display: flex;
