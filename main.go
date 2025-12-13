@@ -54,6 +54,7 @@ type App struct {
 	isRunning        bool
 	currentLocalPort string
 	historyFilePath  string
+	exeDir           string // [ADDED] Directory of the executable
 }
 
 // ProgressWriter is a custom writer that reports progress
@@ -85,9 +86,12 @@ func (a *App) startup(ctx context.Context) {
 	// 获取可执行文件所在的目录
 	exePath, err := os.Executable()
 	if err != nil {
+		// Fallback for safety, though it should rarely fail
+		a.exeDir = "."
 		a.historyFilePath = HistoryFile
 	} else {
-		a.historyFilePath = filepath.Join(filepath.Dir(exePath), HistoryFile)
+		a.exeDir = filepath.Dir(exePath) // [MODIFIED] Store the executable's directory
+		a.historyFilePath = filepath.Join(a.exeDir, HistoryFile)
 	}
 
 	// 启动一个 goroutine，在短暂延迟后加载历史记录并推送到前端
@@ -316,19 +320,30 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 	}
 
 	arch := strings.TrimSpace(string(outArch))
-	var localFile string
+	var localAgentFilename string
 	if arch == "x86_64" {
-		localFile = LocalAgentAMD64
+		localAgentFilename = LocalAgentAMD64
 	} else if arch == "aarch64" {
-		localFile = LocalAgentARM64
+		localAgentFilename = LocalAgentARM64
 	} else {
 		return fmt.Errorf("不支持架构: %s", arch)
 	}
 
+	// [MODIFIED] Construct absolute path for the agent file
+	localAgentPath := filepath.Join(a.exeDir, localAgentFilename)
+
 	a.logUI("🔍 校验组件...")
-	localHash, err := calculateFileHash(localFile)
+	localHash, err := calculateFileHash(localAgentPath) // [MODIFIED] Use absolute path
 	if err != nil {
-		return fmt.Errorf("计算本地 Agent 哈希失败: %w", err)
+		// [MODIFIED] Provide a more user-friendly error message
+		errorMsg := fmt.Sprintf("无法读取本地 Agent 文件 '%s'。请确保它与应用程序在同一目录中。", localAgentFilename)
+		a.logUI("❌ " + errorMsg)
+		wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
+			Type:    wailsruntime.ErrorDialog,
+			Title:   "文件未找到",
+			Message: errorMsg,
+		})
+		return fmt.Errorf("%s: %w", errorMsg, err)
 	}
 
 	remoteHashCmd := fmt.Sprintf("sha256sum %s", RemotePath)
@@ -351,7 +366,7 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 		_ = sessClean.Close()
 		time.Sleep(500 * time.Millisecond)
 
-		if err := a.uploadFile(client, localFile, RemotePath); err != nil {
+		if err := a.uploadFile(client, localAgentPath, RemotePath); err != nil { // [MODIFIED] Use absolute path
 			return err
 		}
 	}
