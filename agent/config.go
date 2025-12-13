@@ -52,6 +52,8 @@ type Config struct {
 	MtenantJdbcPassword string `properties:"jdbc.multitenant.password"`
 	RabbitMQAddresses   string `properties:"spring.rabbitmq.addresses"`
 	RabbitMQAdminPort   int    `properties:"rabbitmq.admin.port,default=15672"`
+	RabbitMQUsername    string `properties:"spring.rabbitmq.username"`
+	RabbitMQPassword    string `properties:"spring.rabbitmq.password"`
 	MinioURL            string `properties:"storage.minio.url"`
 }
 

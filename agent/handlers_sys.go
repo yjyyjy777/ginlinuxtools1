@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -274,10 +273,4 @@ func handleLogDownload(c *gin.Context) {
 	}
 	_ = os.Chmod(path, 0644)
 	c.File(path)
-}
-
-// --- 首页 ---
-func handleIndex(c *gin.Context) {
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(http.StatusOK, htmlPage)
 }

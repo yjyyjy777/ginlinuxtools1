@@ -27,7 +27,7 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	// 1. 静态首页
+	// 1. 静态首页 (使用新的模板渲染 handler)
 	r.GET("/", handleIndex)
 
 	// 2. 文件上传

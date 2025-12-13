@@ -1,17 +1,30 @@
 package main
 
-// 修复说明：
-// 1. 之前代码中的 \\n 导致 JS 解析为字面量字符 "\n" 而非换行符，致使 Markdown 渲染时所有内容挤在一行。
-//    现已全部替换为 \n，确保 JS 字符串中包含真正的换行符。
-// 2. 保留了 \x60 用于在 JS 字符串中表示反引号，避免与 Go 的 Raw String 冲突。
-// 3. [路径修复] 移除了硬编码的 API_BASE 和 UPLOAD_URL 常量，所有 fetch 和 XHR 请求都使用相对路径，以同时支持根路径和子路径部署。
+import (
+	"html/template"
+	"net/http"
+	"strings"
 
-const htmlPage = `<!DOCTYPE html>
+	"github.com/gin-gonic/gin"
+)
+
+// InjectedData will be injected into the HTML template
+type InjectedData struct {
+	RabbitMQUser string
+	RabbitMQPass string
+}
+
+// htmlPageTemplate is now a template string
+const htmlPageTemplate = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <title>UEM Deployment Tools</title>
     <script>
+        // Injected by Go template
+        const RABBITMQ_USER = "{{.RabbitMQUser}}";
+        const RABBITMQ_PASS = "{{.RabbitMQPass}}";
+
         // 强制尾部斜杠，防止相对路径资源加载错误
         if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('.html')) {
             var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "/" + window.location.search;
@@ -405,8 +418,62 @@ const htmlPage = `<!DOCTYPE html>
        if (isLink) { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); const mainBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.includes('基础服务')); if(mainBtn) mainBtn.classList.add('active'); document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById('panel-baseservices').classList.add('active'); }
        if(group) { const p = event.target.closest('.card'); p.querySelectorAll('.'+group).forEach(x=>x.style.display='none'); p.querySelectorAll('.sub-tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(id).style.display='block'; event.target.classList.add('active'); return; }
         else { const parent = document.getElementById('panel-baseservices'); parent.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active')); parent.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active')); document.getElementById(id).classList.add('active'); event.target.classList.add('active'); }
-       if (id === 'bs-rabbitmq') { const frame = document.getElementById('frame-rabbitmq'); if (!frame.src) frame.src = frame.dataset.src; }
-        else if (id === 'bs-minio') { const frame = document.getElementById('frame-minio'); if (!frame.src) { frame.src = frame.dataset.src; frame.onload = function() { let attempts = 0; const interval = setInterval(() => { attempts++; if(attempts > 40) clearInterval(interval); try { const doc = frame.contentWindow.document; const user = doc.getElementById('accessKey'); const pass = doc.getElementById('secretKey'); const btn = doc.querySelector('button[type="submit"]'); if(user && pass && btn) { const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; nativeInputValueSetter.call(user, 'admin'); user.dispatchEvent(new Event('input', { bubbles: true })); nativeInputValueSetter.call(pass, 'Nqsky1130'); pass.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => { btn.click(); }, 300); clearInterval(interval); } } catch(e) {} }, 500); }; } }
+       
+        if (id === 'bs-rabbitmq') {
+            const frame = document.getElementById('frame-rabbitmq');
+            if (!frame.src) {
+                frame.src = frame.dataset.src;
+                frame.onload = function() {
+                    let attempts = 0;
+                    const interval = setInterval(() => {
+                        attempts++;
+                        if (attempts > 40) clearInterval(interval);
+                        try {
+                            const doc = frame.contentWindow.document;
+                            const user = doc.querySelector('input[name="username"]');
+                            const pass = doc.querySelector('input[name="password"]');
+                            const btn = doc.querySelector('input[type="submit"]');
+                            if (user && pass && btn) {
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeInputValueSetter.call(user, RABBITMQ_USER);
+                                user.dispatchEvent(new Event('input', { bubbles: true }));
+                                nativeInputValueSetter.call(pass, RABBITMQ_PASS);
+                                pass.dispatchEvent(new Event('input', { bubbles: true }));
+                                setTimeout(() => { btn.click(); }, 300);
+                                clearInterval(interval);
+                            }
+                        } catch (e) {}
+                    }, 500);
+                };
+            }
+        } else if (id === 'bs-minio') {
+            const frame = document.getElementById('frame-minio');
+            if (!frame.src) {
+                frame.src = frame.dataset.src;
+                frame.onload = function() {
+                    let attempts = 0;
+                    const interval = setInterval(() => {
+                        attempts++;
+                        if (attempts > 40) clearInterval(interval);
+                        try {
+                            const doc = frame.contentWindow.document;
+                            const user = doc.getElementById('accessKey');
+                            const pass = doc.getElementById('secretKey');
+                            const btn = doc.querySelector('button[type="submit"]');
+                            if (user && pass && btn) {
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeInputValueSetter.call(user, 'admin');
+                                user.dispatchEvent(new Event('input', { bubbles: true }));
+                                nativeInputValueSetter.call(pass, 'Nqsky1130');
+                                pass.dispatchEvent(new Event('input', { bubbles: true }));
+                                setTimeout(() => { btn.click(); }, 300);
+                                clearInterval(interval);
+                            }
+                        } catch (e) {}
+                    }, 500);
+                };
+            }
+        }
     }
     function getWsUrl(ep) { let path = location.pathname; if (!path.endsWith('/')) path += '/'; return (location.protocol==='https:'?'wss://':'ws://') + location.host + path + ep; }
     function viewLog(key, el) {
@@ -781,3 +848,32 @@ const htmlPage = `<!DOCTYPE html>
 </script>
 </body>
 </html>`
+
+// handleIndex serves the main HTML page, injecting necessary data.
+func handleIndex(c *gin.Context) {
+	// Create a new template and parse the template string
+	tmpl, err := template.New("index").Parse(htmlPageTemplate)
+	if err != nil {
+		// This should not happen if the template string is valid
+		c.String(http.StatusInternalServerError, "Internal Server Error: could not parse template")
+		return
+	}
+
+	// Prepare the data to be injected
+	data := InjectedData{
+		RabbitMQUser: appConfig.RabbitMQUsername,
+		RabbitMQPass: appConfig.RabbitMQPassword,
+	}
+
+	// Create a buffer to hold the executed template
+	var renderedHTML strings.Builder
+	err = tmpl.Execute(&renderedHTML, data)
+	if err != nil {
+		// This should not happen if the data struct matches the template
+		c.String(http.StatusInternalServerError, "Internal Server Error: could not execute template")
+		return
+	}
+
+	// Serve the rendered HTML
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(renderedHTML.String()))
+}
