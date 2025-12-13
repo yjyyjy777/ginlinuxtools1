@@ -268,3 +268,21 @@ header {
 .modal-footer .btn {
     min-width: 80px;
 }
+
+/* --- 进度条样式 --- */
+.progress-container {
+    width: 100%;
+    background-color: var(--background-secondary);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    height: 8px;
+    display: none; /* Initially hidden */
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background-color: var(--primary-color);
+    border-radius: 4px;
+    transition: width 0.1s linear;
+}

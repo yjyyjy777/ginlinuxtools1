@@ -56,6 +56,24 @@ type App struct {
 	historyFilePath  string
 }
 
+// ProgressWriter is a custom writer that reports progress
+type ProgressWriter struct {
+	writer     io.Writer
+	total      int64
+	written    int64
+	onProgress func(float64)
+}
+
+func (pw *ProgressWriter) Write(p []byte) (int, error) {
+	n, err := pw.writer.Write(p)
+	if err == nil {
+		pw.written += int64(n)
+		progress := float64(pw.written) / float64(pw.total) * 100
+		pw.onProgress(progress)
+	}
+	return n, err
+}
+
 func NewApp() *App {
 	return &App{}
 }
@@ -398,13 +416,27 @@ func (a *App) uploadFile(client *ssh.Client, local, remote string) error {
 	}
 	defer func() { _ = src.Close() }()
 
+	fileInfo, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	fileSize := fileInfo.Size()
+
 	dst, err := sftpClient.Create(remote)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = dst.Close() }()
 
-	_, err = io.Copy(dst, src)
+	progressWriter := &ProgressWriter{
+		writer: dst,
+		total:  fileSize,
+		onProgress: func(progress float64) {
+			wailsruntime.EventsEmit(a.ctx, "upload:progress", progress)
+		},
+	}
+
+	_, err = io.Copy(progressWriter, src)
 	return err
 }
 
