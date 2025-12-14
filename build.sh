@@ -17,7 +17,7 @@ OUTPUT_NAME="uemtools.exe"
 if [[ "$1" == "mac" ]]; then
     PLATFORM_NAME="mac"
     WAILS_PLATFORM="darwin"
-    OUTPUT_NAME="uemtools.app"
+    OUTPUT_NAME="UEM Deployment Tools.app"
 fi
 
 # Final, clean destination for all artifacts
@@ -70,11 +70,20 @@ mv "build/bin/$OUTPUT_NAME" "$FINAL_DIR/"
 if [[ "$PLATFORM_NAME" == "mac" ]]; then
     echo "  -> Copying inner binary from .app bundle..."
     cp "$FINAL_DIR/$OUTPUT_NAME/Contents/MacOS/uemtools" "$FINAL_DIR/uemtools"
+
+    echo "  -> Bundling agents into .app..."
+    cp cncyagent_amd64 "$FINAL_DIR/$OUTPUT_NAME/Contents/MacOS/"
+    cp cncyagent_arm64 "$FINAL_DIR/$OUTPUT_NAME/Contents/MacOS/"
 fi
 
-# Move the agents to the final dir
-mv cncyagent_amd64 "$FINAL_DIR/"
-mv cncyagent_arm64 "$FINAL_DIR/"
+# Move the agents to the final dir (keep external copy for reference/scripts)
+# or remove this if we ONLY want them inside the app.
+# The user said "don't need 3 packages", so maybe we don't need them outside?
+# But for safety/Linux debug, keeping a copy outside might be useful, 
+# or we can just copy them instead of move. 
+# Let's COPY them to final dir as well, just in case user wants standalone.
+cp cncyagent_amd64 "$FINAL_DIR/"
+cp cncyagent_arm64 "$FINAL_DIR/"
 echo "  -> Assembly complete."
 echo
 

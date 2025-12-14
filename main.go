@@ -332,6 +332,18 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 	// [MODIFIED] Construct absolute path for the agent file
 	localAgentPath := filepath.Join(a.exeDir, localAgentFilename)
 
+	// [FIX] Mac App Bundle Path Resolution
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat(localAgentPath); os.IsNotExist(err) {
+			// If running inside .app/Contents/MacOS, the sibling files are 3 levels up
+			// .app/Contents/MacOS/../../../cncyagent_amd64
+			upperPath := filepath.Join(a.exeDir, "../../..", localAgentFilename)
+			if _, err := os.Stat(upperPath); err == nil {
+				localAgentPath = upperPath
+			}
+		}
+	}
+
 	a.logUI("🔍 校验组件...")
 	localHash, err := calculateFileHash(localAgentPath) // [MODIFIED] Use absolute path
 	if err != nil {
