@@ -11,12 +11,12 @@ if ! command -v $WAILS_CMD &> /dev/null; then
 fi
 
 PLATFORM_NAME="windows"
-WAILS_PLATFORM="windows"
+WAILS_PLATFORM="windows/amd64"
 OUTPUT_NAME="uemtools.exe"
 
 if [[ "$1" == "mac" ]]; then
     PLATFORM_NAME="mac"
-    WAILS_PLATFORM="darwin"
+    WAILS_PLATFORM="darwin/arm64"
     OUTPUT_NAME="UEM Deployment Tools.app"
 fi
 
