@@ -70,17 +70,21 @@ func getRootCrontab() []string {
 
 // --- 文件上传 ---
 func handleUpload(c *gin.Context) {
-	// [MODIFIED] 1. 获取用户指定的路径，默认为 /root
-	targetDir := c.PostForm("path")
-	if targetDir == "" {
-		targetDir = "/root"
-	}
-
-	// [MODIFIED] 2. 获取文件
+	// [MODIFIED] 1. 获取文件
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(400, gin.H{"error": "未接收到文件"})
 		return
+	}
+
+	// [MODIFIED] 2. 确定目标目录
+	// 如果是 tar.gz，强制设定为 /root
+	targetDir := c.PostForm("path")
+	isTarGz := strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz")
+	if isTarGz {
+		targetDir = "/root"
+	} else if targetDir == "" {
+		targetDir = "/root"
 	}
 
 	// [MODIFIED] 3. 确保目录存在
@@ -97,7 +101,7 @@ func handleUpload(c *gin.Context) {
 	}
 
 	// [MODIFIED] 5. 解压文件 (仅针对 .tar.gz)
-	if strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz") {
+	if isTarGz {
 		cmd := exec.Command("tar", "-zxvf", dst, "-C", targetDir)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -112,7 +116,7 @@ func handleUpload(c *gin.Context) {
 	}
 
 	// [MODIFIED] 6. 返回成功 JSON
-	c.JSON(200, gin.H{"message": "上传并处理成功", "path": dst})
+	c.JSON(200, gin.H{"message": "上传并处理成功", "path": dst, "dir": targetDir})
 }
 
 func handleUploadAny(c *gin.Context) {

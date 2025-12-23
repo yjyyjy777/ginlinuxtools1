@@ -18,22 +18,56 @@ import (
 func handleDeployWS(c *gin.Context) {
 	workDir := c.Query("path")
 	deployType := c.Query("type")
-	scriptArg := c.Query("arg")
+	// scriptArg := c.Query("arg") // Deprecated or less used with auto-detection but kept if needed
 
+	// [MODIFIED] If path is empty, default to InstallWorkDir (or /root based on new logic if needed)
 	if workDir == "" {
-		workDir = InstallWorkDir
+		workDir = "/root"
 	}
 
 	var cmd *exec.Cmd
+
 	if deployType == "install" {
-		cmd = exec.Command("/bin/bash", filepath.Join(workDir, InstallScript))
+		cmd = exec.Command("/bin/bash", filepath.Join(InstallWorkDir, InstallScript))
 	} else {
-		scriptPath := filepath.Join(workDir, UpdateScript)
-		if scriptArg != "" {
-			cmd = exec.Command("/bin/bash", scriptPath, scriptArg)
-		} else {
-			cmd = exec.Command("/bin/bash", scriptPath, "uem")
+		// [MODIFIED] Dispatch based on 'arg' from frontend (uem, webui, tomcat)
+		// Frontend calls: startScript('update', 'uem') -> arg=uem
+		scriptArg := c.Query("arg")
+		if scriptArg == "" {
+			scriptArg = "uem" // Default fallback
 		}
+
+		targetScript := ""
+		switch scriptArg {
+		case "uem":
+			if _, err := os.Stat(filepath.Join(workDir, "update.sh")); err == nil {
+				targetScript = "update.sh"
+			} else {
+				targetScript = UpdateScript // Fallback to config default (mdm.sh/update.sh)
+			}
+		case "webui":
+			targetScript = "update_webui.sh"
+		case "tomcat":
+			targetScript = "update_tomcat.sh"
+		default:
+			targetScript = "update.sh"
+		}
+
+		// Execute the chosen script
+		// Note: update.sh might need 'uem' arg if it's the old mdm.sh style, but user said "update.sh is for updating mdm", imply no arg needed or arg is implicit.
+		// However, the legacy mdm.sh took 'uem', 'webui' etc.
+		// If the new 'update.sh' is a direct replacement for 'mdm.sh', it might still accept args.
+		// But 'update_tomcat.sh' likely doesn't need 'tomcat' arg.
+
+		if targetScript == "update.sh" || targetScript == "mdm.sh" {
+			// For the main update script, we might pass the arg if it expects it.
+			// But if we have specific scripts (update_tomcat.sh), we don't use update.sh for them.
+			// For 'uem' case, we run update.sh.
+			cmd = exec.Command("/bin/bash", targetScript)
+		} else {
+			cmd = exec.Command("/bin/bash", targetScript)
+		}
+		cmd.Dir = workDir
 	}
 
 	startPTYSession(c.Writer, c.Request, cmd)

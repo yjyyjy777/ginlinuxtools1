@@ -14,7 +14,7 @@ var (
 	RpmCacheDir     = "/root/rpm_cache"
 	InstallWorkDir  = "/root/install-cncy" // 默认工作目录
 	InstallScript   = "install.sh"
-	UpdateScript    = "mdm.sh"
+	UpdateScript    = "update.sh"
 	IsoSavePath     = "/root/os.iso"
 	IsoMountPoint   = "/mnt/cdrom"
 	RepoBackupDir   = "/etc/yum.repos.d/backup_cncy"

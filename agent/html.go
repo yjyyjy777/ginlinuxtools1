@@ -84,6 +84,8 @@ const htmlPageTemplate = `<!DOCTYPE html>
         .btn-green { background: #27ae60; } .btn-green:hover { background: #219150; }
         .btn-orange { background: #e67e22; } .btn-orange:hover { background: #d35400; }
         .btn-red { background: #e74c3c; } .btn-red:hover { background: #c0392b; }
+        .btn-purple { background: #9b59b6; } .btn-purple:hover { background: #8e44ad; }
+        .btn-teal { background: #1abc9c; } .btn-teal:hover { background: #16a085; }
         .btn-restart { background: #e74c3c; } .btn-restart:hover { background: #c0392b; }
         .btn-dl-log { background: transparent; border: 1px solid #ccc; color: #666; padding: 2px 6px; border-radius: 3px; font-size: 11px; cursor: pointer; }
         .btn-dl-log:hover { background: #27ae60; color: white; border-color: #27ae60; }
@@ -288,17 +290,17 @@ const htmlPageTemplate = `<!DOCTYPE html>
                     
                     <!-- UEM 全量更新 -->
                     <button id="btnUEM" class="btn-red" onclick="startScript('update', 'uem')" disabled>
-                        <i class="fas fa-sync"></i> 更新 UEM<br><span style="font-size:10px; opacity:0.8">(mdm.sh uem)</span>
+                        <i class="fas fa-sync"></i> 更新 UEM<br><span style="font-size:10px; opacity:0.8">(update.sh)</span>
                     </button>
                     
                     <!-- WebUI 独立更新 -->
-                    <button id="btnWebUI" class="btn-orange" onclick="startScript('update', 'webui')" disabled>
-                        <i class="fas fa-columns"></i> 更新 WebUI<br><span style="font-size:10px; opacity:0.8">(mdm.sh webui)</span>
+                    <button id="btnWebUI" class="btn-teal" onclick="startScript('update', 'webui')" disabled>
+                        <i class="fas fa-columns"></i> 更新 WebUI<br><span style="font-size:10px; opacity:0.8">(update_webui.sh)</span>
                     </button>
                     
                     <!-- Tomcat 独立更新 -->
-                    <button id="btnTomcat" class="btn-orange" onclick="startScript('update', 'tomcat')" disabled>
-                        <i class="fas fa-server"></i> 更新 Tomcat<br><span style="font-size:10px; opacity:0.8">(mdm.sh tomcat)</span>
+                    <button id="btnTomcat" class="btn-purple" onclick="startScript('update', 'tomcat')" disabled>
+                        <i class="fas fa-server"></i> 更新 Tomcat<br><span style="font-size:10px; opacity:0.8">(update_tomcat.sh)</span>
                     </button>
                 </div>
 
@@ -544,16 +546,30 @@ const htmlPageTemplate = `<!DOCTYPE html>
                     foundScript = true;
                 }
 
-                if (data.has_mdm) {
+                if (data.has_uem) {
                     btnUEM.disabled = false;
-                    btnWebUI.disabled = false;
-                    btnTomcat.disabled = false;
-                    info += '✅ mdm.sh (支持更新) ';
+                    info += '✅ update.sh ';
                     foundScript = true;
                 }
+                if (data.has_webui) {
+                    btnWebUI.disabled = false;
+                    info += '✅ update_webui.sh ';
+                    foundScript = true;
+                }
+                if (data.has_tomcat) {
+                    btnTomcat.disabled = false;
+                    info += '✅ update_tomcat.sh ';
+                    foundScript = true;
+                }
+                // Fallback for generic MDM flag if needed, but granular is better
+                if (!foundScript && data.has_mdm) {
+                     // Could enable all if fallback logic used, but let's stick to granular
+                     info += '✅ (Legacy Update Mode) ';
+                     btnUEM.disabled = false;
+                }
 
-                if (!foundScript) { 
-                    info += '<span class="warn">未找到 install.sh 或 mdm.sh</span><br><span class="fail" style="font-size:11px;">' + (data.debug_msg||"") + '</span>';
+                if (!foundScript && !data.has_mdm) { 
+                    info += '<span class="warn">未找到 install.sh 或更新脚本</span><br><span class="fail" style="font-size:11px;">' + (data.debug_msg||"") + '</span>';
                 }
                 msgBox.innerHTML = info;
             } else {

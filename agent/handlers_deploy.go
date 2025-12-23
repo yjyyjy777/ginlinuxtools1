@@ -41,10 +41,27 @@ func handleCheckDir(c *gin.Context) {
 		res["has_install"] = true
 	}
 
-	if _, err := os.Stat(filepath.Join(cleanPath, UpdateScript)); err == nil {
+	// [MODIFIED] Granular check for update scripts
+	if _, err := os.Stat(filepath.Join(cleanPath, "update.sh")); err == nil {
+		res["has_uem"] = true
+		res["has_mdm"] = true // Keep based on update.sh for now
+	} else if _, err := os.Stat(filepath.Join(cleanPath, UpdateScript)); err == nil {
+		res["has_uem"] = true
 		res["has_mdm"] = true
-	} else {
-		res["debug_msg"] = fmt.Sprintf("未找到 %s", UpdateScript)
+	}
+
+	if _, err := os.Stat(filepath.Join(cleanPath, "update_webui.sh")); err == nil {
+		res["has_webui"] = true
+		res["has_mdm"] = true
+	}
+
+	if _, err := os.Stat(filepath.Join(cleanPath, "update_tomcat.sh")); err == nil {
+		res["has_tomcat"] = true
+		res["has_mdm"] = true
+	}
+
+	if res["has_mdm"] == false {
+		res["debug_msg"] = fmt.Sprintf("未找到更新脚本 (update.sh, update_webui.sh, etc)")
 	}
 
 	c.JSON(200, res)

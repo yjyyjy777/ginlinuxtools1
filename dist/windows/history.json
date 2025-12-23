@@ -1,0 +1,11 @@
+[
+  {
+    "name": "root@172.16.10.151",
+    "host": "172.16.10.151",
+    "port": "22",
+    "user": "root",
+    "password": "10.151@cncy",
+    "localPort": "9999",
+    "remotePort": "9898"
+  }
+]
