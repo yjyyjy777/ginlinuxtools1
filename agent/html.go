@@ -329,6 +329,10 @@ const htmlPageTemplate = `<!DOCTYPE html>
               </div>
               <div class="card">
                  <h3>键值管理</h3>
+                 <div style="margin-bottom:10px; display:flex; gap:10px;">
+                    <input type="text" id="redisSearchInput" placeholder="搜索 Key (支持模糊匹配)..." style="flex:1" onkeydown="if(event.key==='Enter') redis.searchKeys()">
+                    <button onclick="redis.searchKeys()">搜索</button>
+                 </div>
                  <div id="redis-keys-table-container">加载中...</div>
               </div>
             </div>
@@ -812,7 +816,8 @@ const htmlPageTemplate = `<!DOCTYPE html>
        allKeys: [], currentFilter: 'all', initialized: false,
        init: function() { if(this.initialized) return; this.fetchInfo(); this.fetchAllKeys(); this.initialized = true; },
        fetchInfo: async function() { try { const res = await fetch('api/baseservices/redis/info'); if (!res.ok) throw new Error('Failed to fetch info'); const info = await res.json(); const metrics = {'redis_version': 'Version', 'uptime_in_days': 'Uptime (Days)', 'connected_clients': 'Clients', 'used_memory_human': 'Memory', 'total_commands_processed': 'Commands', 'instantaneous_ops_per_sec': 'Ops/Sec'}; const grid = document.getElementById('redis-info-grid'); grid.innerHTML = ''; for (const key in metrics) { if (info[key]) grid.innerHTML += '<div class="card"><h3>' + metrics[key] + '</h3><p style="font-size:1.5em;font-weight:bold;">' + info[key] + '</p></div>'; } } catch (e) { document.getElementById('redis-info-grid').innerHTML = '<p class="fail">Failed to load Redis stats.</p>'; } },
-       fetchAllKeys: async function() { try { const res = await fetch('api/baseservices/redis/keys'); if (!res.ok) throw new Error('Failed to fetch keys'); this.allKeys = await res.json() || []; this.allKeys.sort((a, b) => a.key.localeCompare(b.key)); this.renderTable(); } catch (e) { document.getElementById('redis-keys-table-container').innerHTML = '<p class="fail">Failed to load keys.</p>'; } },
+       fetchAllKeys: async function(pattern) { try { let url = 'api/baseservices/redis/keys'; if(pattern) url += '?pattern=' + encodeURIComponent(pattern); const res = await fetch(url); if (!res.ok) throw new Error('Failed to fetch keys'); this.allKeys = await res.json() || []; this.allKeys.sort((a, b) => a.key.localeCompare(b.key)); this.renderTable(); } catch (e) { document.getElementById('redis-keys-table-container').innerHTML = '<p class="fail">Failed to load keys.</p>'; } },
+       searchKeys: function() { const v = document.getElementById('redisSearchInput').value.trim(); this.fetchAllKeys(v); },
        renderTable: function() { let html = '<table><thead><tr><th style="width:60%">Key</th><th style="width:15%">Type</th><th style="width:25%">Actions</th></tr></thead><tbody>'; this.allKeys.forEach(item => { html += '<tr><td class="redis-key-cell" title="' + escapeHtml(item.key) + '">' + escapeHtml(item.key) + '</td><td>' + escapeHtml(item.type) + '</td><td><button class="btn-sm" onclick="redis.viewEditKey(\'' + item.key + '\', \'' + item.type + '\')">View/Edit</button> <button class="btn-sm btn-red" onclick="redis.deleteKey(\'' + item.key + '\')">Delete</button></td></tr>'; }); html += '</tbody></table>'; document.getElementById('redis-keys-table-container').innerHTML = html; },
        deleteKey: async function(key) { if (!confirm('确认删除: ' + key + '?')) return; await fetch('api/baseservices/redis/key?key=' + encodeURIComponent(key), { method: 'DELETE' }); this.fetchAllKeys(); },
        viewEditKey: async function(key, type) { document.getElementById('modal-title').textContent = 'Editing ' + type + ': ' + key; document.getElementById('modal-body').innerHTML = '<p>Loading...</p>'; document.getElementById('modal-backdrop').style.display = 'block'; document.getElementById('modal').style.display = 'block'; const res = await fetch('api/baseservices/redis/value?type=' + type + '&key=' + encodeURIComponent(key)); const data = await res.json(); this.renderModalContent(data); },

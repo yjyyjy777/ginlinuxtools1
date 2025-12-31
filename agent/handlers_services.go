@@ -30,7 +30,13 @@ func redisKeysAndTypesHandler(c *gin.Context) {
 		var err error
 		var nextCursor uint64
 		// FIX: Use different variable name for returned cursor to avoid shadowing 'c' (*gin.Context)
-		keys, nextCursor, err = rdb.Scan(c, cursor, "*", 500).Result()
+		pattern := c.Query("pattern")
+		if pattern == "" {
+			pattern = "*"
+		} else if !strings.Contains(pattern, "*") {
+			pattern = "*" + pattern + "*"
+		}
+		keys, nextCursor, err = rdb.Scan(c, cursor, pattern, 500).Result()
 		if err != nil {
 			c.String(500, err.Error())
 			return
