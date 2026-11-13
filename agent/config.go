@@ -31,6 +31,11 @@ var uemServices = []string{
 	"nginx", "redis", "mysqld", "minio", "rabbitmq-server", "scep-go",
 }
 
+var pnServices = []string{
+	"ps", "ns", "pc", "mtcs", "cps", "nbas",
+	"redis", "mysqld",
+}
+
 var logFileMap = map[string]string{
 	"tomcat":      "/opt/emm/current/tomcat/logs/catalina.out",
 	"app_server":  "/emm/logs/AppServer/appServer.log",
@@ -155,10 +160,12 @@ type ServiceStat struct {
 	Status string `json:"status"`
 }
 type UemInfo struct {
-	Installed bool          `json:"installed"`
-	Services  []ServiceStat `json:"services"`
+	Installed  bool          `json:"installed"`
+	ServerType string        `json:"server_type"`
+	Services   []ServiceStat `json:"services"`
 }
 type MinioInfo struct {
+	HasService   bool   `json:"has_service"`
 	BucketExists bool   `json:"bucket_exists"`
 	Policy       string `json:"policy"`
 }

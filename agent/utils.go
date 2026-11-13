@@ -133,33 +133,42 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f%cB", float64(b)/float64(d), "KMGTPE"[e])
 }
 
+func checkSshConfig() bool {
+	d, err := os.ReadFile("/etc/ssh/sshd_config")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(d), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 2 && strings.EqualFold(fields[0], "AllowTcpForwarding") && strings.EqualFold(fields[1], "yes") {
+			return true
+		}
+	}
+	return false
+}
+
 func autoFixSshConfig() error {
+	if checkSshConfig() {
+		return nil
+	}
 	const cfgPath = "/etc/ssh/sshd_config"
 	contentBytes, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return fmt.Errorf("read sshd_config failed: %w", err)
 	}
 	content := string(contentBytes)
-	updated := false
 	if strings.Contains(content, "#AllowTcpForwarding yes") {
 		content = strings.ReplaceAll(content, "#AllowTcpForwarding yes", "AllowTcpForwarding yes")
-		updated = true
-	}
-	if !strings.Contains(content, "AllowTcpForwarding yes") && !strings.Contains(content, "AllowTcpForwarding no") {
+	} else {
 		content += "\nAllowTcpForwarding yes\n"
-		updated = true
-	}
-	if !updated {
-		return nil
 	}
 	err = os.WriteFile(cfgPath, []byte(content), 0644)
 	if err != nil {
 		return fmt.Errorf("write sshd_config failed: %w", err)
 	}
 	return exec.Command("systemctl", "restart", "sshd").Run()
-}
-
-func checkSshConfig() bool {
-	d, _ := os.ReadFile("/etc/ssh/sshd_config")
-	return strings.Contains(string(d), "AllowTcpForwarding yes")
 }

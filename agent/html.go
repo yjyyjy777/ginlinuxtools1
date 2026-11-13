@@ -155,13 +155,14 @@ const htmlPageTemplate = `<!DOCTYPE html>
 </head>
 <body>
 <div class="navbar">
-    <button class="tab-btn active" onclick="switchTab('check')">🔍 操作系统</button>
-    <button class="tab-btn" onclick="switchTab('deps')">🔧 环境依赖</button>
-    <button class="tab-btn" onclick="switchTab('deploy')">📦 部署/更新</button>
-    <button class="tab-btn" onclick="switchTab('files')">📂 文件管理</button>
+    <button class="tab-btn active" onclick="switchTab('check')">🔍 Dashboard</button>
+    <button class="tab-btn" onclick="switchTab('deploy')">📦 UEM部署/更新</button>
+    <button class="tab-btn" onclick="switchTab('pndeploy')">🌐 PN部署</button>
     <button class="tab-btn" onclick="switchTab('terminal')">💻 终端</button>
     <button class="tab-btn" onclick="switchTab('logs')">📜 日志查看</button>
     <button class="tab-btn" onclick="switchTab('baseservices')">⚙️ 基础服务</button>
+    <button class="tab-btn" onclick="switchTab('deps')">🔧 环境依赖</button>
+    <button class="tab-btn" onclick="switchTab('files')">📂 文件管理</button>
     <button class="tab-btn" onclick="switchTab('about')">ℹ️ 关于</button>
     <button class="tab-btn" onclick="switchTab('help')" style="margin-left: auto;">❓ 帮助</button>
 </div>
@@ -189,7 +190,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
                 <div class="card"><h3>🛡️ 安全与网络</h3><table id="secTable"><tbody><tr><td>加载中...</td></tr></tbody></table></div>
             </div>
             <div>
-                <div class="card"><h3>🚀 UEM 服务监控</h3><div id="uemStatusBox"><p>检测 UEM 安装状态...</p></div></div>
+                <div class="card"><h3 id="svcMonitorTitle">🚀 服务监控</h3><div id="uemStatusBox"><p>检测服务安装状态...</p></div></div>
             </div>
         </div>
         <div class="grid-3">
@@ -229,7 +230,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
                 <div id="tcpConnCountBox" style="font-size: 2em; font-weight: bold; text-align: center; padding: 20px;">加载中...</div>
             </div>
         </div>
-        <div class="card"><h3>🗄️ MinIO 检测</h3><table id="minioTable"><tbody><tr><td>加载中...</td></tr></tbody></table></div>
+        <div class="card" id="minioCard" style="display:none;"><h3>🗄️ MinIO 检测</h3><table id="minioTable"><tbody><tr><td>加载中...</td></tr></tbody></table></div>
     </div>
     
     <div id="panel-deps" class="panel"><div class="container-box" style="max-width: 1000px;"><div class="card"><h3>💿 ISO 挂载 (配置本地 YUM)</h3><div style="display:flex; flex-direction:column; gap:10px;"><div style="display:flex; align-items:center; gap:10px;"><span style="width:80px; color:#666;">上传镜像:</span><input type="file" id="isoInput" accept=".iso" style="width:300px;"><button onclick="mountIso()">上传并挂载</button></div><div style="display:flex; align-items:center; gap:10px;"><span style="width:80px; color:#666;">本地路径:</span><input type="text" id="isoPathInput" placeholder="/tmp/kylin.iso" style="width:300px;"><button class="btn-orange" onclick="mountLocalIso()">使用本地文件</button></div></div><div id="yum-log" class="term-box" style="height:120px;margin-top:10px">等待操作...</div></div><div class="card"><h3>🛠️ RPM 安装</h3><div style="display:flex;gap:10px"><input type="file" id="rpmInput" accept=".rpm"><button onclick="installRpm()">执行安装</button></div><div id="rpm-log" class="term-box" style="height:120px;margin-top:10px"></div></div></div></div>
@@ -238,51 +239,100 @@ const htmlPageTemplate = `<!DOCTYPE html>
     <div id="panel-deploy" class="panel">
         <div class="container-box" style="max-width: 1000px;">
             
-            <!-- 1. 目录设置 -->
-            <div class="card">
-                <h3>📂 1. 设置工作目录</h3>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <span style="color:#666; font-size:13px;">路径:</span>
-                    <input type="text" id="manualPathInput" placeholder="/root/install-cncy" value="/root/install-cncy" style="flex:1; font-family:monospace;">
-                    <button class="btn-orange" onclick="checkManualPath()">检测脚本</button>
-                </div>
-                <div id="pathCheckMsg" style="margin-top:5px; font-size:12px; height:18px;"></div>
+            <!-- 1. 自动工作目录 -->
+            <div class="card" style="display:none;">
+                <input type="text" id="manualPathInput" value="/root/install-cncy">
             </div>
 
-            <!-- 2. 文件上传 -->
-            <div class="card">
-                <h3>📤 2. 上传更新包 (上传后自动解压)</h3>
-                <div style="background:#f8f9fa; padding:10px; border-radius:4px; font-size:12px; color:#666; margin-bottom:10px; line-height: 1.6;">
-                    <strong>请根据更新类型上传对应文件：</strong><br>
-                    1. 更新 WebUI &nbsp;&nbsp;➔ 上传 <code>WebUI.tar.gz</code><br>
-                    2. 更新 Tomcat ➔ 上传 <code>apache-tomcat-*.zip</code><br>
-                    3. 全量更新 UEM ➔ 上传 <code>UEM-*.tar.gz</code>
+            <!-- 2. 文件上传与下载 -->
+            <div class="grid-2" style="margin-bottom: 15px;">
+                <div class="card" style="margin-bottom:0;">
+                    <h3>📥 安装包获取 (本地上传 / 远程下载)</h3>
+                    <div style="font-size:12px; color:#666; margin-bottom:10px;">上传或直接从网盘下载部署包 (任意 .tar.gz，部署时自动解压)</div>
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom: 10px;">
+                        <input type="file" id="fileInputInstall" style="flex:1;">
+                        <button id="btnUploadInstall" onclick="uploadFileWithProgress('install')">上传安装包</button>
+                    </div>
+                    <!-- 远程下载安装包 (先选桶，再选包，支持自定义配置桶) -->
+                    <div style="border-top: 1px dashed #ddd; padding-top: 10px; margin-bottom: 10px; display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size:12px; color:#2980b9; font-weight:bold; white-space:nowrap;"><i class="fas fa-cloud-download-alt"></i> 从网上下载 (选桶):</span>
+                            <select id="remoteBucketSelect" onchange="onBucketChange()" style="flex:1; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:12px;">
+                                <option value="http://f.cncytech.com:9000/cymdm62/">cymdm62 (http://f.cncytech.com:9000/cymdm62/)</option>
+                            </select>
+                            <button type="button" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="toggleBucketConfig()" title="添加自定义桶地址">
+                                <i class="fas fa-plus"></i> 配置桶
+                            </button>
+                            <button type="button" class="btn-red" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="deleteCurrentBucket()" title="删除当前选中的桶">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <div id="bucketConfigRow" style="display:none; align-items:center; gap:6px; background:#f8fafc; padding:6px 8px; border-radius:4px; border:1px solid #cbd5e1;">
+                            <input type="text" id="newBucketUrlInput" placeholder="输入桶地址，如 http://f.cncytech.com:9001/browser/cymdm61 或 http://f.cncytech.com:9000/cymdm62/" style="flex:1; padding:4px 6px; border:1px solid #ccc; border-radius:3px; font-size:12px; font-family:monospace;">
+                            <button type="button" class="btn-green" style="padding:4px 10px; font-size:12px; white-space:nowrap;" onclick="addCustomBucket()">保存桶</button>
+                            <button type="button" style="padding:4px 8px; font-size:12px; background:#94a3b8; white-space:nowrap;" onclick="toggleBucketConfig()">取消</button>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size:12px; color:#2980b9; font-weight:bold; white-space:nowrap;"><i class="fas fa-box-open"></i> 选择安装包:</span>
+                            <select id="remotePkgSelect" style="flex:1; min-width:120px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:12px;">
+                                <option value="">正在获取安装包列表...</option>
+                            </select>
+                            <button class="btn-green" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="downloadRemotePackage()">
+                                <i class="fas fa-server"></i> 服务器执行下载
+                            </button>
+                            <button class="btn-teal" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="saveRemotePackageToLocal()">
+                                <i class="fas fa-laptop"></i> 保存到本地电脑
+                            </button>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; border-top: 1px dashed #ddd; padding-top: 10px;">
+                        <span style="font-size:12px; color:#666;">免上传直接定位:</span>
+                        <input type="text" id="installPathInput" value="/root/install-cncy" style="flex:1; font-family:monospace; padding:3px 5px; border:1px solid #ccc; border-radius:3px;">
+                        <button class="btn-orange" style="padding:4px 8px; font-size:12px;" onclick="checkPathFromInput('install')">定位安装目录</button>
+                    </div>
                 </div>
                 
-                <!-- [MODIFIED] New Upload UI -->
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span style="color:#666; font-size:13px; width:80px;">上传路径:</span>
-                        <input type="text" id="uploadPathInput" value="/root" style="flex:1; font-family:monospace;">
+                <div class="card" style="margin-bottom:0;">
+                    <h3>📤 上传更新包</h3>
+                    <div style="font-size:12px; color:#666; margin-bottom:10px;">上传 UEM / WebUI / Tomcat 更新包 (原样保留)</div>
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom: 10px;">
+                        <input type="file" id="fileInputUpdate" style="flex:1;">
+                        <button id="btnUploadUpdate" onclick="uploadFileWithProgress('update')">上传更新包</button>
                     </div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span style="color:#666; font-size:13px; width:80px;">选择文件:</span>
-                        <input type="file" id="fileInput" style="flex:1;">
-                        <button id="uploadButton" onclick="uploadFileWithProgress()">上传</button>
+                    <div style="display:flex; align-items:center; gap:10px; border-top: 1px dashed #ddd; padding-top: 10px;">
+                        <span style="font-size:12px; color:#666;">免上传直接定位:</span>
+                        <input type="text" id="updatePathInput" value="/root/uem-update" style="flex:1; font-family:monospace; padding:3px 5px; border:1px solid #ccc; border-radius:3px;">
+                        <button class="btn-orange" style="padding:4px 8px; font-size:12px;" onclick="checkPathFromInput('update')">定位更新目录</button>
                     </div>
-                    <div id="uploadProgressContainer">
-                        <div id="uploadProgressBar"></div>
-                    </div>
-                    <div id="uploadStatus" style="font-weight:bold; font-size:12px; height: 16px;"></div>
                 </div>
-
+            </div>
+            
+            <div class="card" style="margin-bottom: 15px; padding: 10px 15px;">
+                <div id="uploadProgressContainer" style="display:none; width: 100%; background-color: #e0e0e0; border-radius: 4px; height: 16px; overflow: hidden; margin-bottom: 5px;">
+                    <div id="uploadProgressBar" style="width: 0%; height: 100%; background-color: #27ae60; text-align: center; line-height: 16px; color: white; font-size: 11px; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div id="uploadStatus" style="font-weight:bold; font-size:12px; color:#666;"></div>
+                    <div id="pathCheckMsg" style="font-size:13px; font-weight:bold; color:#2980b9;">等待上传包，系统将自动检测可用操作...</div>
+                </div>
             </div>
 
             <!-- 3. 执行操作 -->
             <div class="card" style="flex:1">
-                <h3>🚀 3. 执行操作</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                    <h3 style="margin:0;">🚀 2. 执行操作</h3>
+                    <div style="display:flex; align-items:center; gap:8px; background:#f8f9fa; padding:6px 12px; border-radius:4px; border:1px solid #e2e8f0; font-size:12px;">
+                        <span style="font-weight:bold; color:#4a5568;"><i class="fas fa-database"></i> 全量更新数据策略:</span>
+                        <label style="cursor:pointer; display:flex; align-items:center; gap:4px; margin:0;">
+                            <input type="radio" name="uemDbMode" value="keep-data" checked> 保留数据 (增量升级)
+                        </label>
+                        <label style="cursor:pointer; display:flex; align-items:center; gap:4px; margin:0; color:#c53030;">
+                            <input type="radio" name="uemDbMode" value="reset-data"> 重置初始化 (reset-data)
+                        </label>
+                    </div>
+                </div>
                 
-                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:15px;">
+                <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; margin-bottom:15px;">
                     <!-- 首次部署 -->
                     <button id="btnInstall" class="btn-green" onclick="startScript('install')" disabled>
                         <i class="fas fa-play"></i> 首次部署<br><span style="font-size:10px; opacity:0.8">(install.sh)</span>
@@ -290,21 +340,98 @@ const htmlPageTemplate = `<!DOCTYPE html>
                     
                     <!-- UEM 全量更新 -->
                     <button id="btnUEM" class="btn-red" onclick="startScript('update', 'uem')" disabled>
-                        <i class="fas fa-sync"></i> 更新 UEM<br><span style="font-size:10px; opacity:0.8">(update.sh)</span>
+                        <i class="fas fa-sync"></i> 整体升级 UEM<br><span style="font-size:10px; opacity:0.8">(update.sh uem)</span>
                     </button>
                     
                     <!-- WebUI 独立更新 -->
                     <button id="btnWebUI" class="btn-teal" onclick="startScript('update', 'webui')" disabled>
-                        <i class="fas fa-columns"></i> 更新 WebUI<br><span style="font-size:10px; opacity:0.8">(update_webui.sh)</span>
+                        <i class="fas fa-columns"></i> 独立更新 WebUI<br><span style="font-size:10px; opacity:0.8">(update.sh webui)</span>
                     </button>
                     
+                    <!-- Backend WAR包 独立更新 -->
+                    <button id="btnBackend" class="btn-orange" onclick="startScript('update', 'backend')" disabled>
+                        <i class="fas fa-cubes"></i> 独立更新 WAR包<br><span style="font-size:10px; opacity:0.8">(update.sh backend)</span>
+                    </button>
+
                     <!-- Tomcat 独立更新 -->
                     <button id="btnTomcat" class="btn-purple" onclick="startScript('update', 'tomcat')" disabled>
-                        <i class="fas fa-server"></i> 更新 Tomcat<br><span style="font-size:10px; opacity:0.8">(update_tomcat.sh)</span>
+                        <i class="fas fa-server"></i> 独立更新 Tomcat<br><span style="font-size:10px; opacity:0.8">(update.sh tomcat)</span>
                     </button>
                 </div>
 
                 <div id="deploy-term" style="height:400px;background:#000;border-radius:4px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PN 部署面板 -->
+    <div id="panel-pndeploy" class="panel">
+        <div class="container-box" style="max-width: 1000px;">
+            <div class="card" style="margin-bottom: 15px;">
+                <h3>📥 PN 安装包获取 (本地上传 / 远程下载)</h3>
+                <div style="font-size:12px; color:#666; margin-bottom:10px;">上传或从桶中下载 PN 部署包 (.tar.gz)，自动解压并进入解压目录定位 install.sh</div>
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom: 10px;">
+                    <input type="file" id="fileInputPnInstall" style="flex:1;">
+                    <button id="btnUploadPnInstall" onclick="uploadFileWithProgress('pn_install')">上传安装包</button>
+                </div>
+                <div style="border-top: 1px dashed #ddd; padding-top: 10px; margin-bottom: 10px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:12px; color:#2980b9; font-weight:bold; white-space:nowrap;"><i class="fas fa-cloud-download-alt"></i> 从网上下载 (选桶):</span>
+                        <select id="pnRemoteBucketSelect" onchange="onPnBucketChange()" style="flex:1; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:12px;">
+                            <option value="http://f.cncytech.com:9000/cymdm62/">cymdm62 (http://f.cncytech.com:9000/cymdm62/)</option>
+                        </select>
+                        <button type="button" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="togglePnBucketConfig()" title="添加自定义桶地址">
+                            <i class="fas fa-plus"></i> 配置桶
+                        </button>
+                        <button type="button" class="btn-red" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="deletePnCurrentBucket()" title="删除当前选中的桶">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    <div id="pnBucketConfigRow" style="display:none; align-items:center; gap:6px; background:#f8fafc; padding:6px 8px; border-radius:4px; border:1px solid #cbd5e1;">
+                        <input type="text" id="pnNewBucketUrlInput" placeholder="输入桶地址，如 http://f.cncytech.com:9001/browser/cymdm61 或 http://f.cncytech.com:9000/cymdm62/" style="flex:1; padding:4px 6px; border:1px solid #ccc; border-radius:3px; font-size:12px; font-family:monospace;">
+                        <button type="button" class="btn-green" style="padding:4px 10px; font-size:12px; white-space:nowrap;" onclick="addPnCustomBucket()">保存桶</button>
+                        <button type="button" style="padding:4px 8px; font-size:12px; background:#94a3b8; white-space:nowrap;" onclick="togglePnBucketConfig()">取消</button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:12px; color:#2980b9; font-weight:bold; white-space:nowrap;"><i class="fas fa-box-open"></i> 选择安装包:</span>
+                        <select id="pnRemotePkgSelect" style="flex:1; min-width:120px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:12px;">
+                            <option value="">正在获取安装包列表...</option>
+                        </select>
+                        <button class="btn-green" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="downloadPnRemotePackage()">
+                            <i class="fas fa-server"></i> 服务器执行下载
+                        </button>
+                        <button class="btn-teal" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="savePnRemotePackageToLocal()">
+                            <i class="fas fa-laptop"></i> 保存到本地电脑
+                        </button>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; border-top: 1px dashed #ddd; padding-top: 10px;">
+                    <span style="font-size:12px; color:#666;">免上传直接定位 (解压目录):</span>
+                    <input type="text" id="pnInstallPathInput" value="/root/pn_rocky9_x64" style="flex:1; font-family:monospace; padding:3px 5px; border:1px solid #ccc; border-radius:3px;">
+                    <button class="btn-orange" style="padding:4px 8px; font-size:12px;" onclick="checkPnPath()">定位安装目录</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom: 15px; padding: 10px 15px;">
+                <div id="pnUploadProgressContainer" style="display:none; width: 100%; background-color: #e0e0e0; border-radius: 4px; height: 16px; overflow: hidden; margin-bottom: 5px;">
+                    <div id="pnUploadProgressBar" style="width: 0%; height: 100%; background-color: #27ae60; text-align: center; line-height: 16px; color: white; font-size: 11px; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div id="pnUploadStatus" style="font-weight:bold; font-size:12px; color:#666;"></div>
+                    <div id="pnPathCheckMsg" style="font-size:13px; font-weight:bold; color:#2980b9;">等待上传或下载 PN 安装包，系统将自动进入解压目录检测 install.sh...</div>
+                </div>
+            </div>
+
+            <div class="card" style="flex:1">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="margin:0;">🚀 2. 执行操作</h3>
+                </div>
+                <div style="display:flex; gap:10px; margin-bottom:15px;">
+                    <button id="btnPnInstall" class="btn-green" style="min-width: 220px; padding: 10px 20px;" onclick="startPnInstall()" disabled>
+                        <i class="fas fa-play"></i> 首次部署 PN<br><span style="font-size:10px; opacity:0.8">(install.sh)</span>
+                    </button>
+                </div>
+                <div id="pn-deploy-term" style="height:400px;background:#000;border-radius:4px;"></div>
             </div>
         </div>
     </div>
@@ -388,9 +515,9 @@ const htmlPageTemplate = `<!DOCTYPE html>
                 <h3>关于 UEM Deployment Tools</h3>
                 <table class="about-table">
                     <tbody>
-                        <tr><td style="width: 100px;"><strong>作者</strong></td><td>王凯</td></tr>
-                        <tr><td><strong>版本</strong></td><td>5.6 (Component Update)</td></tr>
-                        <tr><td><strong>更新日期</strong></td><td>2024-07-26</td></tr>
+                        <tr><td style="width: 100px;"><strong>作者</strong></td><td>辰尧产品交付运维部</td></tr>
+                        <tr><td><strong>版本</strong></td><td>6.2.1</td></tr>
+                        <tr><td><strong>更新日期</strong></td><td>2026-11-11</td></tr>
                         <tr><td style="vertical-align: top; padding-top: 12px;"><strong>主要功能</strong></td><td><ul style="margin:0; padding-left: 20px; line-height: 1.8;"><li>系统基础环境、安全配置、服务状态一键体检</li><li>实时系统资源（内存/负载/网络）监控图表</li><li>通过上传或本地路径挂载 ISO 镜像，自动配置 YUM 源</li><li>在线安装 RPM 依赖包</li><li><strong>新功能：WebUI 和 Tomcat 独立更新支持</strong></li><li>指定服务器目录进行部署/更新（免重复上传）</li><li>全功能网页 Shell 终端 (Fix PTY)</li><li>实时查看多种 UEM 服务日志</li><li>基础服务(Redis/MySQL/RabbitMQ/MinIO)监控与管理</li></ul></td></tr>
                     </tbody>
                 </table>
@@ -416,6 +543,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 <script>
     let deployTerm, sysTerm, deploySocket, sysSocket, deployFit, sysFit, logSocket, currentPath = "/root";
+    let pnDeployTerm, pnDeploySocket, pnDeployFit;
     let sysChart, netChart; let checkInterval;
 
     // Fixed: Replaced double backslashes \\n with single backslash \n to ensure correct newline parsing in Markdown
@@ -427,6 +555,18 @@ const htmlPageTemplate = `<!DOCTYPE html>
          fmLoadPath("/root");
          startCheckPolling();
          document.getElementById('help-content').innerHTML = marked.parse(readmeContent);
+         initRemoteBuckets();
+         checkManualPath();
+         checkPnPath(true);
+
+         // 保持当前选中的 Tab
+         const savedTab = localStorage.getItem('activeTab');
+         if (savedTab) {
+             const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + savedTab + "'"));
+             if (targetBtn) {
+                 targetBtn.click();
+             }
+         }
     }
     function startCheckPolling() { if(checkInterval) clearInterval(checkInterval); checkInterval = setInterval(() => { if(document.getElementById('panel-check').classList.contains('active')) { runCheck(); } }, 3000); }
     function initCharts() {
@@ -436,10 +576,14 @@ const htmlPageTemplate = `<!DOCTYPE html>
         netChart = new Chart(ctx2, { type: 'line', data: { labels: [], datasets: [ { label: 'Rx (下载)', data: [], borderColor: '#27ae60', fill: false, tension: 0.3 }, { label: 'Tx (上传)', data: [], borderColor: '#f39c12', fill: false, tension: 0.3 } ] }, options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { y: { beginAtZero: true, title: { display: true, text: 'KB/s' } }, x: { ticks: { display: false } } } } });
     }
     function switchTab(id) {
+        localStorage.setItem('activeTab', id);
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('panel-'+id).classList.add('active'); event.target.classList.add('active');
+        document.getElementById('panel-'+id).classList.add('active'); 
+        const activeNavBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + id + "'"));
+        if (activeNavBtn) activeNavBtn.classList.add('active');
         if (id === 'terminal') { if (!sysTerm) initSysTerm(); setTimeout(()=>sysFit.fit(), 200); }
-        if (id === 'deploy') { setTimeout(()=>deployFit && deployFit.fit(), 200); }
+        if (id === 'deploy') { setTimeout(()=>deployFit && deployFit.fit(), 200); checkManualPath(); }
+        if (id === 'pndeploy') { setTimeout(()=>pnDeployFit && pnDeployFit.fit(), 200); checkPnPath(true); }
         if (id === 'baseservices') { redis.init(); mysql.init(); }
     }
     function switchSubTab(event, id, isLink, group) {
@@ -515,6 +659,21 @@ const htmlPageTemplate = `<!DOCTYPE html>
     function dlLog(key, e) { e.stopPropagation(); window.location.href = 'api/log/download?key=' + key; }
     function clearLog(){ document.getElementById('logContent').innerText=""; }
     
+    function checkPathFromInput(type) {
+        let path = '';
+        if (type === 'install') {
+            path = (document.getElementById('installPathInput') ? document.getElementById('installPathInput').value : '') || '/root/install-cncy';
+        } else if (type === 'update') {
+            path = (document.getElementById('updatePathInput') ? document.getElementById('updatePathInput').value : '') || '/root/uem-update';
+        }
+        path = path.trim();
+        if (path) {
+            const manualEl = document.getElementById('manualPathInput');
+            if (manualEl) manualEl.value = path;
+            checkManualPath();
+        }
+    }
+
     // ==========================================
     // 核心逻辑：目录检测与按钮控制
     // ==========================================
@@ -525,59 +684,84 @@ const htmlPageTemplate = `<!DOCTYPE html>
         const btnInstall = document.getElementById('btnInstall');
         const btnUEM = document.getElementById('btnUEM');
         const btnWebUI = document.getElementById('btnWebUI');
+        const btnBackend = document.getElementById('btnBackend');
         const btnTomcat = document.getElementById('btnTomcat');
 
         // 先全部禁用
-        [btnInstall, btnUEM, btnWebUI, btnTomcat].forEach(b => b.disabled = true);
+        [btnInstall, btnUEM, btnWebUI, btnBackend, btnTomcat].forEach(b => { if(b) b.disabled = true; });
 
         if (!path) {
             msgBox.innerHTML = '<span class="fail">请输入路径</span>';
             return;
         }
-        msgBox.innerHTML = '正在检测...';
+        msgBox.innerHTML = '正在检测上传目录...';
 
         try {
             const res = await fetch('api/check_dir?path=' + encodeURIComponent(path));
             const data = await res.json();
 
             if (data.exists) {
-                let info = '<span class="pass">目录存在。</span> ';
-                let foundScript = false;
+                let info = '';
+                let foundPackage = false;
 
                 if (data.has_install) {
-                    btnInstall.disabled = false;
-                    info += '✅ install.sh ';
-                    foundScript = true;
+                    if (data.is_installed) {
+                        if (btnInstall) btnInstall.disabled = true;
+                        info += '⚠️ 检测到系统已部署 UEM (/opt/emm/current 已存在)，已锁定首次部署 ';
+                    } else {
+                        if (btnInstall) btnInstall.disabled = false;
+                        info += '✅ 检测到安装程序 (install.sh) ';
+                    }
+                    foundPackage = true;
                 }
 
                 if (data.has_uem) {
-                    btnUEM.disabled = false;
-                    info += '✅ update.sh ';
-                    foundScript = true;
+                    if (data.is_installed) {
+                        if (btnUEM) btnUEM.disabled = false;
+                        info += '✅ UEM 全量更新包 ';
+                    } else {
+                        if (btnUEM) btnUEM.disabled = true;
+                        info += '⚠️ 检测到 UEM 更新包，但系统未安装 UEM (/opt/emm/current 不存在)，无法升级 ';
+                    }
+                    foundPackage = true;
                 }
                 if (data.has_webui) {
-                    btnWebUI.disabled = false;
-                    info += '✅ update_webui.sh ';
-                    foundScript = true;
+                    if (data.has_sys_webui) {
+                        if (btnWebUI) btnWebUI.disabled = false;
+                        info += '✅ WebUI 更新包 (WebUI.tar.gz) ';
+                    } else {
+                        if (btnWebUI) btnWebUI.disabled = true;
+                        info += '⚠️ 检测到 WebUI 更新包，但系统不存在 WebUI 目录 (/opt/emm/current/source/WebUI/) ';
+                    }
+                    foundPackage = true;
+                }
+                if (data.has_backend) {
+                    if (data.has_sys_backend) {
+                        if (btnBackend) btnBackend.disabled = false;
+                        info += '✅ WAR包/后端更新包 (mdm.war) ';
+                    } else {
+                        if (btnBackend) btnBackend.disabled = true;
+                        info += '⚠️ 检测到 WAR 更新包，但系统不存在 /opt/emm/current/tomcat/webapps/mdm.war ';
+                    }
+                    foundPackage = true;
                 }
                 if (data.has_tomcat) {
-                    btnTomcat.disabled = false;
-                    info += '✅ update_tomcat.sh ';
-                    foundScript = true;
-                }
-                // Fallback for generic MDM flag if needed, but granular is better
-                if (!foundScript && data.has_mdm) {
-                     // Could enable all if fallback logic used, but let's stick to granular
-                     info += '✅ (Legacy Update Mode) ';
-                     btnUEM.disabled = false;
+                    if (data.has_sys_tomcat) {
+                        if (btnTomcat) btnTomcat.disabled = false;
+                        info += '✅ Tomcat 更新包 (tomcat.tar.gz) ';
+                    } else {
+                        if (btnTomcat) btnTomcat.disabled = true;
+                        info += '⚠️ 检测到 Tomcat 更新包，但系统不存在 /opt/emm/current/tomcat 目录 ';
+                    }
+                    foundPackage = true;
                 }
 
-                if (!foundScript && !data.has_mdm) { 
-                    info += '<span class="warn">未找到 install.sh 或更新脚本</span><br><span class="fail" style="font-size:11px;">' + (data.debug_msg||"") + '</span>';
+                if (!foundPackage) { 
+                    info += '<span class="warn">未检测到任何相关的安装包或更新包</span>';
                 }
                 msgBox.innerHTML = info;
             } else {
-                msgBox.innerHTML = '<span class="fail">目录不存在 (' + (data.debug_msg || "") + ')</span>';
+                msgBox.innerHTML = '<span class="fail">目录不存在</span>';
             }
         } catch (e) {
             console.error(e);
@@ -586,26 +770,46 @@ const htmlPageTemplate = `<!DOCTYPE html>
     }
 
     // [MODIFIED] Replaced old uploadFile with new version supporting progress bar
-    function uploadFileWithProgress() {
-        const fileInput = document.getElementById('fileInput');
-        const pathInput = document.getElementById('uploadPathInput');
-        const uploadButton = document.getElementById('uploadButton');
-        const statusDiv = document.getElementById('uploadStatus');
-        const progressContainer = document.getElementById('uploadProgressContainer');
-        const progressBar = document.getElementById('uploadProgressBar');
+    function uploadFileWithProgress(type) {
+        let fileInput, pathInput, uploadButton;
+        let statusDiv = document.getElementById('uploadStatus');
+        let progressContainer = document.getElementById('uploadProgressContainer');
+        let progressBar = document.getElementById('uploadProgressBar');
 
-        if (fileInput.files.length === 0) {
+        if (type === 'install') {
+            fileInput = document.getElementById('fileInputInstall');
+            pathInput = document.getElementById('installPathInput');
+            uploadButton = document.getElementById('btnUploadInstall');
+        } else if (type === 'pn_install') {
+            fileInput = document.getElementById('fileInputPnInstall');
+            pathInput = document.getElementById('pnInstallPathInput');
+            uploadButton = document.getElementById('btnUploadPnInstall');
+            statusDiv = document.getElementById('pnUploadStatus');
+            progressContainer = document.getElementById('pnUploadProgressContainer');
+            progressBar = document.getElementById('pnUploadProgressBar');
+        } else if (type === 'update') {
+            fileInput = document.getElementById('fileInputUpdate');
+            pathInput = document.getElementById('updatePathInput');
+            uploadButton = document.getElementById('btnUploadUpdate');
+        } else {
+            fileInput = document.getElementById('fileInput');
+            pathInput = document.getElementById('uploadPathInput');
+            uploadButton = document.getElementById('uploadButton');
+        }
+
+        if (!fileInput || fileInput.files.length === 0) {
             alert('请先选择一个文件');
             return;
         }
 
         const file = fileInput.files[0];
-        const path = pathInput.value.trim();
+        const path = pathInput ? pathInput.value.trim() : '/root';
         const formData = new FormData();
         formData.append('file', file);
         formData.append('path', path);
+        formData.append('upload_type', type || 'general');
 
-        uploadButton.disabled = true;
+        if (uploadButton) uploadButton.disabled = true;
         statusDiv.innerHTML = '准备上传...';
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
@@ -624,18 +828,29 @@ const htmlPageTemplate = `<!DOCTYPE html>
         };
 
         xhr.onload = function() {
-            uploadButton.disabled = false;
+            if (uploadButton) uploadButton.disabled = false;
             if (xhr.status === 200) {
                 progressBar.style.backgroundColor = '#27ae60';
                 statusDiv.innerHTML = '<span class="pass">✅ 上传并处理成功!</span>';
+                let extractedDir = '';
                 try {
                     const response = JSON.parse(xhr.responseText);
-                    alert('成功: ' + response.message);
+                    extractedDir = response.extracted_dir || '';
+                    alert('成功: ' + response.message + (extractedDir ? ('\n解压目录: ' + extractedDir) : ''));
                 } catch (e) {
                     alert('上传成功，但服务器响应异常。');
                 }
-                // 自动检测工作目录，以启用脚本按钮
-                checkManualPath();
+                if (type === 'pn_install') {
+                    if (extractedDir && document.getElementById('pnInstallPathInput')) {
+                        document.getElementById('pnInstallPathInput').value = extractedDir;
+                    }
+                    checkPnPath();
+                } else {
+                    if (extractedDir && type === 'install' && document.getElementById('installPathInput')) {
+                        document.getElementById('installPathInput').value = extractedDir;
+                    }
+                    checkPathFromInput(type);
+                }
             } else {
                 progressBar.style.backgroundColor = '#c0392b';
                 statusDiv.innerHTML = '<span class="fail">❌ 上传失败!</span>';
@@ -649,7 +864,7 @@ const htmlPageTemplate = `<!DOCTYPE html>
         };
 
         xhr.onerror = function() {
-            uploadButton.disabled = false;
+            if (uploadButton) uploadButton.disabled = false;
             progressBar.style.backgroundColor = '#c0392b';
             statusDiv.innerHTML = '<span class="fail">❌ 网络错误!</span>';
             alert('上传失败: 无法连接到服务器。');
@@ -664,6 +879,419 @@ const htmlPageTemplate = `<!DOCTYPE html>
         alert("此功能已被新版上传取代，请使用带进度条的上传。");
     }
 
+
+    // ==========================================
+    // 远程安装包获取与执行下载 (支持先选桶、再选包)
+    // ==========================================
+    let remotePkgList = [];
+
+    function renderBucketOptions(items, selectedUrl) {
+        ['remoteBucketSelect', 'pnRemoteBucketSelect'].forEach(selId => {
+            const bSelect = document.getElementById(selId);
+            if (!bSelect) return;
+            bSelect.innerHTML = '';
+            (items || []).forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.url;
+                opt.textContent = item.display || (item.name + " (" + item.url + ")");
+                if (selectedUrl && item.url === selectedUrl) {
+                    opt.selected = true;
+                }
+                bSelect.appendChild(opt);
+            });
+        });
+    }
+
+    async function initRemoteBuckets(preferredBucket) {
+        const bSelect = document.getElementById('remoteBucketSelect');
+        if (!bSelect) return;
+        try {
+            const res = await fetch('api/buckets');
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+                const savedBucket = preferredBucket || localStorage.getItem('selectedRemoteBucket') || data.items[0].url;
+                renderBucketOptions(data.items, savedBucket);
+            }
+        } catch (e) {
+            console.error("获取桶配置列表失败", e);
+        }
+        await loadRemotePackages();
+        await loadPnRemotePackages();
+    }
+
+    function onBucketChange() {
+        const bSelect = document.getElementById('remoteBucketSelect');
+        if (bSelect && bSelect.value) {
+            localStorage.setItem('selectedRemoteBucket', bSelect.value);
+        }
+        loadRemotePackages();
+    }
+
+    function toggleBucketConfig() {
+        const row = document.getElementById('bucketConfigRow');
+        const input = document.getElementById('newBucketUrlInput');
+        if (!row) return;
+        if (row.style.display === 'none' || row.style.display === '') {
+            row.style.display = 'flex';
+            if (input) input.focus();
+        } else {
+            row.style.display = 'none';
+        }
+    }
+
+    async function addCustomBucket() {
+        const input = document.getElementById('newBucketUrlInput');
+        if (!input || !input.value.trim()) {
+            alert('请输入桶地址，例如: http://f.cncytech.com:9001/browser/cymdm61');
+            return;
+        }
+        const rawUrl = input.value.trim();
+        try {
+            const res = await fetch('api/buckets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket: rawUrl })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert('保存桶失败: ' + (data.error || '未知错误'));
+                return;
+            }
+            input.value = '';
+            document.getElementById('bucketConfigRow').style.display = 'none';
+            const selected = data.current || rawUrl;
+            localStorage.setItem('selectedRemoteBucket', selected);
+            renderBucketOptions(data.items, selected);
+            await loadRemotePackages();
+            await loadPnRemotePackages();
+        } catch (e) {
+            alert('保存桶地址失败: ' + e.message);
+        }
+    }
+
+    async function deleteCurrentBucket() {
+        const bSelect = document.getElementById('remoteBucketSelect');
+        if (!bSelect || !bSelect.value) return;
+        const target = bSelect.value;
+        if (!confirm('确定要从配置记录中移除该桶地址吗？\n' + target)) return;
+        try {
+            const res = await fetch('api/buckets?bucket=' + encodeURIComponent(target), {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+                localStorage.setItem('selectedRemoteBucket', data.items[0].url);
+                renderBucketOptions(data.items, data.items[0].url);
+                await loadRemotePackages();
+                await loadPnRemotePackages();
+            }
+        } catch (e) {
+            alert('删除桶失败: ' + e.message);
+        }
+    }
+
+    // ==========================================
+    // PN 部署专属逻辑 (选桶、选包、下载解压、自动 cd 解压目录并执行 install.sh)
+    // ==========================================
+    function onPnBucketChange() {
+        const bSelect = document.getElementById('pnRemoteBucketSelect');
+        if (bSelect && bSelect.value) {
+            localStorage.setItem('selectedRemoteBucket', bSelect.value);
+            const uemBSelect = document.getElementById('remoteBucketSelect');
+            if (uemBSelect) uemBSelect.value = bSelect.value;
+        }
+        loadPnRemotePackages();
+    }
+
+    function togglePnBucketConfig() {
+        const row = document.getElementById('pnBucketConfigRow');
+        const input = document.getElementById('pnNewBucketUrlInput');
+        if (!row) return;
+        if (row.style.display === 'none' || row.style.display === '') {
+            row.style.display = 'flex';
+            if (input) input.focus();
+        } else {
+            row.style.display = 'none';
+        }
+    }
+
+    async function addPnCustomBucket() {
+        const input = document.getElementById('pnNewBucketUrlInput');
+        if (!input || !input.value.trim()) {
+            alert('请输入桶地址，例如: http://f.cncytech.com:9001/browser/cymdm61');
+            return;
+        }
+        const rawUrl = input.value.trim();
+        try {
+            const res = await fetch('api/buckets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket: rawUrl })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert('保存桶失败: ' + (data.error || '未知错误'));
+                return;
+            }
+            input.value = '';
+            document.getElementById('pnBucketConfigRow').style.display = 'none';
+            const selected = data.current || rawUrl;
+            localStorage.setItem('selectedRemoteBucket', selected);
+            renderBucketOptions(data.items, selected);
+            await loadRemotePackages();
+            await loadPnRemotePackages();
+        } catch (e) {
+            alert('保存桶地址失败: ' + e.message);
+        }
+    }
+
+    async function deletePnCurrentBucket() {
+        const bSelect = document.getElementById('pnRemoteBucketSelect');
+        if (!bSelect || !bSelect.value) return;
+        const target = bSelect.value;
+        if (!confirm('确定要从配置记录中移除该桶地址吗？\n' + target)) return;
+        try {
+            const res = await fetch('api/buckets?bucket=' + encodeURIComponent(target), {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+                localStorage.setItem('selectedRemoteBucket', data.items[0].url);
+                renderBucketOptions(data.items, data.items[0].url);
+                await loadRemotePackages();
+                await loadPnRemotePackages();
+            }
+        } catch (e) {
+            alert('删除桶失败: ' + e.message);
+        }
+    }
+
+    async function loadPnRemotePackages() {
+        const select = document.getElementById('pnRemotePkgSelect');
+        const bSelect = document.getElementById('pnRemoteBucketSelect');
+        if (!select) return;
+        const bucketUrl = bSelect ? bSelect.value : 'http://f.cncytech.com:9000/cymdm62/';
+        select.innerHTML = '<option value="">正在获取安装包列表...</option>';
+        try {
+            const res = await fetch('api/remote_packages?bucket=' + encodeURIComponent(bucketUrl));
+            const data = await res.json();
+            if (!res.ok) {
+                select.innerHTML = '<option value="">' + (data.error || '获取安装包列表失败') + '</option>';
+                return;
+            }
+            if (data.packages && data.packages.length > 0) {
+                select.innerHTML = '';
+                data.packages.forEach(pkg => {
+                    const opt = document.createElement('option');
+                    opt.value = pkg.url;
+                    opt.textContent = pkg.name + " (" + pkg.size + ")";
+                    select.appendChild(opt);
+                });
+            } else {
+                select.innerHTML = '<option value="">该桶下未找到任何安装包 (.tar.gz / .zip)</option>';
+            }
+        } catch (e) {
+            select.innerHTML = '<option value="">获取安装包列表失败</option>';
+        }
+    }
+
+    function savePnRemotePackageToLocal() {
+        const select = document.getElementById('pnRemotePkgSelect');
+        if (!select || !select.value) {
+            alert('请先选择一个要下载的安装包');
+            return;
+        }
+        window.location.href = 'api/remote_package_download?url=' + encodeURIComponent(select.value);
+    }
+
+    function downloadPnRemotePackage() {
+        const select = document.getElementById('pnRemotePkgSelect');
+        if (!select || !select.value) {
+            alert('请先选择一个要下载的安装包');
+            return;
+        }
+        const pkgUrl = select.value;
+        const targetDir = "/root";
+
+        if (pnDeployTerm) pnDeployTerm.dispose();
+        if (pnDeploySocket) pnDeploySocket.close();
+
+        pnDeployTerm = new Terminal({cursorBlink:true, fontSize:13, theme:{background:'#000'}});
+        pnDeployFit = new FitAddon.FitAddon();
+        pnDeployTerm.loadAddon(pnDeployFit);
+        pnDeployTerm.open(document.getElementById('pn-deploy-term'));
+        pnDeployFit.fit();
+
+        let wsUrl = "ws/deploy?type=wget&mode=pn&path=" + encodeURIComponent(targetDir) + "&url=" + encodeURIComponent(pkgUrl) + "&extract=1";
+        pnDeploySocket = new WebSocket(getWsUrl(wsUrl));
+
+        let completed = false;
+        const onFinish = async () => {
+            if (completed) return;
+            completed = true;
+            btns.forEach(b => b.disabled = false);
+            await checkPnPath(true);
+        };
+
+        setupSocket(pnDeploySocket, pnDeployTerm, pnDeployFit, onFinish);
+
+        const btns = document.querySelectorAll('#panel-pndeploy button');
+        btns.forEach(b => b.disabled = true);
+
+        pnDeploySocket.onclose = () => {
+            onFinish();
+        };
+    }
+
+    async function checkPnPath(useLast) {
+        const pathInput = document.getElementById('pnInstallPathInput');
+        const msgBox = document.getElementById('pnPathCheckMsg');
+        const btnPnInstall = document.getElementById('btnPnInstall');
+        if (!pathInput || !msgBox) return;
+
+        if (btnPnInstall) btnPnInstall.disabled = true;
+        const path = pathInput.value.trim();
+        msgBox.innerHTML = '正在检测 PN 解压安装目录...';
+
+        try {
+            let url = 'api/check_dir?mode=pn&path=' + encodeURIComponent(path);
+            if (useLast) url += '&use_last=1';
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.resolved_path && data.resolved_path !== '.' && data.exists) {
+                pathInput.value = data.resolved_path;
+            }
+
+            if (data.is_pn_installed) {
+                if (btnPnInstall) btnPnInstall.disabled = true;
+                let extra = '';
+                if (data.exists && data.has_install) {
+                    extra = ' (已检测到安装目录 ' + escapeHtml(pathInput.value) + ' 下的 install.sh)';
+                }
+                msgBox.innerHTML = '⚠️ 检测到系统已存在 /srv/hpns/ 目录 (已部署 PN)，已锁定首次部署' + extra;
+            } else if (data.exists) {
+                if (data.has_install) {
+                    if (btnPnInstall) btnPnInstall.disabled = false;
+                    msgBox.innerHTML = '✅ 检测到 PN 安装目录 (' + escapeHtml(pathInput.value) + ') 及安装程序 (install.sh)';
+                } else {
+                    msgBox.innerHTML = '<span class="warn">⚠️ 已找到目录 (' + escapeHtml(pathInput.value) + ')，但未在该目录下检测到 install.sh</span>';
+                }
+            } else {
+                msgBox.innerHTML = '<span class="warn">⚠️ 未在 /root 下检测到 pn 开头的安装目录 (当前定位: ' + escapeHtml(path) + ')</span>';
+            }
+        } catch (e) {
+            msgBox.innerHTML = '<span class="fail">检测请求失败</span>';
+        }
+    }
+
+    function startPnInstall() {
+        const path = document.getElementById('pnInstallPathInput').value.trim();
+        if (!path) {
+            alert('请先上传/下载安装包或指定解压目录');
+            return;
+        }
+        if (pnDeployTerm) pnDeployTerm.dispose();
+        if (pnDeploySocket) pnDeploySocket.close();
+
+        pnDeployTerm = new Terminal({cursorBlink:true, fontSize:13, theme:{background:'#000'}});
+        pnDeployFit = new FitAddon.FitAddon();
+        pnDeployTerm.loadAddon(pnDeployFit);
+        pnDeployTerm.open(document.getElementById('pn-deploy-term'));
+        pnDeployFit.fit();
+
+        let wsUrl = "ws/deploy?type=install&path=" + encodeURIComponent(path);
+        pnDeploySocket = new WebSocket(getWsUrl(wsUrl));
+        setupSocket(pnDeploySocket, pnDeployTerm, pnDeployFit);
+
+        const btns = document.querySelectorAll('#panel-pndeploy button');
+        btns.forEach(b => b.disabled = true);
+    }
+
+    async function loadRemotePackages() {
+        const select = document.getElementById('remotePkgSelect');
+        const bSelect = document.getElementById('remoteBucketSelect');
+        if (!select) return;
+        const bucketUrl = bSelect ? bSelect.value : 'http://f.cncytech.com:9000/cymdm62/';
+        select.innerHTML = '<option value="">正在获取安装包列表...</option>';
+        try {
+            const res = await fetch('api/remote_packages?bucket=' + encodeURIComponent(bucketUrl));
+            const data = await res.json();
+            if (!res.ok) {
+                select.innerHTML = '<option value="">' + (data.error || '获取安装包列表失败') + '</option>';
+                return;
+            }
+            if (data.packages && data.packages.length > 0) {
+                remotePkgList = data.packages;
+                select.innerHTML = '';
+                data.packages.forEach((pkg, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = pkg.url;
+                    opt.textContent = pkg.name + " (" + pkg.size + ")";
+                    select.appendChild(opt);
+                });
+            } else {
+                select.innerHTML = '<option value="">该桶下未找到任何安装包 (.tar.gz / .zip)</option>';
+            }
+        } catch (e) {
+            console.error("获取远程安装包失败", e);
+            select.innerHTML = '<option value="">获取安装包列表失败</option>';
+        }
+    }
+
+    function saveRemotePackageToLocal() {
+        const select = document.getElementById('remotePkgSelect');
+        if (!select || !select.value) {
+            alert('请先选择一个要下载的安装包');
+            return;
+        }
+        const pkgUrl = select.value;
+        window.location.href = 'api/remote_package_download?url=' + encodeURIComponent(pkgUrl);
+    }
+
+    function downloadRemotePackage() {
+        const select = document.getElementById('remotePkgSelect');
+        if (!select || !select.value) {
+            alert('请先选择一个要下载的安装包');
+            return;
+        }
+        const pkgUrl = select.value;
+        const targetDir = "/root";
+
+        if(deployTerm) deployTerm.dispose();
+        if(deploySocket) deploySocket.close();
+        
+        deployTerm = new Terminal({cursorBlink:true, fontSize:13, theme:{background:'#000'}});
+        deployFit = new FitAddon.FitAddon();
+        deployTerm.loadAddon(deployFit);
+        deployTerm.open(document.getElementById('deploy-term'));
+        deployFit.fit();
+
+        // 构造下载并解压的 WS 调度
+        let wsUrl = "ws/deploy?type=wget&path=" + encodeURIComponent(targetDir) + "&url=" + encodeURIComponent(pkgUrl) + "&extract=1";
+        deploySocket = new WebSocket(getWsUrl(wsUrl));
+
+        let completed = false;
+        const onFinish = () => {
+            if (completed) return;
+            completed = true;
+            btns.forEach(b => b.disabled = false);
+            checkPathFromInput('install');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1200);
+        };
+
+        setupSocket(deploySocket, deployTerm, deployFit, onFinish);
+
+        // 并在下载完成或运行中禁用按钮
+        const btns = document.querySelectorAll('#panel-deploy button');
+        btns.forEach(b => b.disabled = true);
+
+        deploySocket.onclose = () => {
+            onFinish();
+        };
+    }
 
     // ==========================================
     // 核心逻辑：执行脚本 (带参数)
@@ -681,21 +1309,36 @@ const htmlPageTemplate = `<!DOCTYPE html>
          deployFit.fit();
          
          // 构建 WebSocket URL
-        let wsUrl = "ws/deploy?type=" + type + "&path=" + encodeURIComponent(path);
-        if (arg) {
-            wsUrl += "&arg=" + arg;
-        }
+         let wsUrl = "ws/deploy?type=" + type + "&path=" + encodeURIComponent(path);
+         if (arg) {
+             wsUrl += "&arg=" + arg;
+             if (type === 'update' && arg === 'uem') {
+                 const dbModeEl = document.querySelector('input[name="uemDbMode"]:checked');
+                 const dbMode = dbModeEl ? dbModeEl.value : 'keep-data';
+                 wsUrl += "&db_mode=" + encodeURIComponent(dbMode);
+             }
+         }
         
          deploySocket = new WebSocket(getWsUrl(wsUrl));
          setupSocket(deploySocket, deployTerm, deployFit);
          
          // 执行中禁用按钮
-        const btns = document.querySelectorAll('#panel-deploy button');
-        btns.forEach(b => b.disabled = true);
+         const btns = document.querySelectorAll('#panel-deploy button');
+         btns.forEach(b => b.disabled = true);
     }
 
     function initSysTerm() { sysTerm=new Terminal({cursorBlink:true,fontSize:14,fontFamily:'Consolas, monospace'}); sysFit=new FitAddon.FitAddon(); sysTerm.loadAddon(sysFit); sysTerm.open(document.getElementById('sys-term')); sysFit.fit(); sysSocket=new WebSocket(getWsUrl("ws/terminal")); setupSocket(sysSocket, sysTerm, sysFit); }
-    function setupSocket(s, t, f) { s.onopen=()=>{s.send(JSON.stringify({type:"resize",cols:t.cols,rows:t.rows}));f.fit()}; s.onmessage=e=>t.write(e.data); t.onData(d=>{if(s.readyState===1)s.send(JSON.stringify({type:"input",data:d}))}); window.addEventListener('resize',()=>{f.fit();if(s.readyState===1)s.send(JSON.stringify({type:"resize",cols:t.cols,rows:t.rows}))}); }
+    function setupSocket(s, t, f, onComplete) { 
+        s.onopen=()=>{s.send(JSON.stringify({type:"resize",cols:t.cols,rows:t.rows}));f.fit()}; 
+        s.onmessage=e=>{
+            t.write(e.data);
+            if (e.data.includes("[PROCESS_COMPLETED]") || e.data.includes(">>> 下载与解压完成！")) {
+                if (typeof onComplete === 'function') onComplete();
+            }
+        }; 
+        t.onData(d=>{if(s.readyState===1)s.send(JSON.stringify({type:"input",data:d}))}); 
+        window.addEventListener('resize',()=>{f.fit();if(s.readyState===1)s.send(JSON.stringify({type:"resize",cols:t.cols,rows:t.rows}))}); 
+    }
     function escapeHtml(unsafe) { return unsafe ? unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;") : ''; }
 
     // --- Restored Missing Functions ---
@@ -726,12 +1369,24 @@ const htmlPageTemplate = `<!DOCTYPE html>
             data.sys_info.disk_list.forEach(d => { let color = d.usage>=90?'bg-red':(d.usage>=75?'bg-orange':'bg-green'); diskHtml += '<div><div style="font-weight:bold;margin-bottom:4px;font-size:13px;">'+d.mount+' <span style="color:#666">('+d.usage+'%)</span></div><div class="progress-bg"><div class="progress-bar '+color+'" style="width:'+d.usage+'%"></div></div><div class="disk-text"><span>'+d.used+'</span><span>'+d.total+'</span></div></div>'; });
             document.getElementById('diskList').innerHTML = diskHtml + '</div>';
             const uemBox = document.getElementById('uemStatusBox');
-            if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM</div>'; }
+            const svcTitle = document.getElementById('svcMonitorTitle');
+            if (svcTitle) {
+                if (data.uem_info.server_type === 'uem') svcTitle.innerHTML = '🚀 UEM 服务监控';
+                else if (data.uem_info.server_type === 'pn') svcTitle.innerHTML = '🚀 PN 服务监控';
+                else svcTitle.innerHTML = '🚀 服务监控';
+            }
+            if (!data.uem_info.installed) { uemBox.innerHTML = '<div style="color:#7f8c8d;text-align:center;padding:20px;">未检测到 UEM / PN 服务</div>'; }
              else { let h = '<table style="width:100%"><thead><tr><th>服务</th><th>状态</th><th>操作</th></tr></thead><tbody>'; data.uem_info.services.forEach(s => { let st = s.status==='run'?'<span class="pass">running</span>':'<span class="fail">Stop</span>'; h += '<tr><td>'+s.name+'</td><td>'+st+'</td><td><button class="btn-sm btn-restart" onclick="restartService(\''+s.name+'\')">重启</button></td></tr>'; }); uemBox.innerHTML = h + '</tbody></table>'; }
             
-            // [RESTORED] Original MinIO rendering logic
-            let mHtml = !data.minio_info.bucket_exists ? '<tr><td>Err</td><td colspan="2">桶不存在/未连接</td></tr>' : '<tr><td>nqsky</td><td>'+data.minio_info.policy+'</td><td>'+(data.minio_info.policy==='public'?'<span class="pass">OK</span>':'<button class="btn-sm btn-fix" onclick="fixMinio()">Public</button>')+'</td></tr>';
-            document.getElementById('minioTable').innerHTML = mHtml;
+            // MinIO 检测: 仅当存在 minio 服务时显示
+            const minioCard = document.getElementById('minioCard');
+            if (!data.minio_info || !data.minio_info.has_service) {
+                if (minioCard) minioCard.style.display = 'none';
+            } else {
+                if (minioCard) minioCard.style.display = '';
+                let mHtml = !data.minio_info.bucket_exists ? '<tr><td>Err</td><td colspan="2">桶不存在/未连接</td></tr>' : '<tr><td>nqsky</td><td>'+data.minio_info.policy+'</td><td>'+(data.minio_info.policy==='public'?'<span class="pass">OK</span>':'<button class="btn-sm btn-fix" onclick="fixMinio()">Public</button>')+'</td></tr>';
+                document.getElementById('minioTable').innerHTML = mHtml;
+            }
 
             // Display network info
             document.getElementById('tcpConnCountBox').textContent = data.sys_info.tcp_conn_count || 'N/A';
@@ -804,7 +1459,15 @@ const htmlPageTemplate = `<!DOCTYPE html>
     
     async function fmLoadPath(p) { currentPath=p; document.getElementById('fmPath').innerText=p; const r=await fetch('api/fs/list?path='+encodeURIComponent(p)); const fs=await r.json(); let h=''; fs.sort((a,b)=>(a.is_dir===b.is_dir)?0:a.is_dir?-1:1); fs.forEach(f=>{ let n=f.is_dir?'<a class="link-dir" href="javascript:fmLoadPath(\''+f.path+'\')">'+f.name+'</a>':f.name; let act=f.is_dir?'':'<button class="btn-sm" onclick="fmDownload(\''+f.path+'\')">下载</button>'; h+='<tr><td>'+(f.is_dir?'📁':'📄')+' '+n+'</td><td>'+f.size+'</td><td>'+f.mod_time+'</td><td>'+act+'</td></tr>'; }); document.getElementById('fmBody').innerHTML=h; }
     function fmUpDir() { let p=currentPath.split('/'); p.pop(); let n=p.join('/'); if(!n)n='/'; fmLoadPath(n); }
-    function fmDownload(p) { window.location.href = 'api/fs/download?path=' + encodeURIComponent(p); }
+    function fmDownload(p) { 
+        const a = document.createElement('a');
+        const filename = p.split('/').pop() || 'download';
+        a.href = 'api/fs/download?path=' + encodeURIComponent(p);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
     function fmRefresh() { fmLoadPath(currentPath); }
     async function fmDoUpload() { const inp=document.getElementById('fmUploadInput'); const fd=new FormData(); fd.append("file", inp.files[0]); fd.append("path", currentPath); const st=document.getElementById('fmStatus'); st.innerText="Uploading..."; await fetch('api/upload_any', {method:'POST', body:fd}); st.innerText="Done"; fmLoadPath(currentPath); }
     

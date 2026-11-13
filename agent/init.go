@@ -18,7 +18,8 @@ import (
 
 var (
 	rdb           *redis.Client
-	dbConnections map[string]*sql.DB
+	dbConnections = make(map[string]*sql.DB)
+	dbConnMutex   sync.RWMutex
 	ctx           = context.Background()
 	lastQuestions int64
 	lastQTime     time.Time
@@ -50,17 +51,26 @@ func initRedis() {
 		return
 	}
 	addr := fmt.Sprintf("%s:%d", appConfig.RedisHost, appConfig.RedisPort)
-	rdb = redis.NewClient(&redis.Options{Addr: addr, Password: appConfig.RedisPassword, DB: 0})
-	if _, err := rdb.Ping(ctx).Result(); err != nil {
+	client := redis.NewClient(&redis.Options{
+		Addr:        addr,
+		Password:    appConfig.RedisPassword,
+		DB:          0,
+		DialTimeout: 2 * time.Second,
+		ReadTimeout: 2 * time.Second,
+	})
+	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := client.Ping(pingCtx).Result(); err != nil {
 		log.Printf("Redis connect fail: %v", err)
+		_ = client.Close()
 		rdb = nil
 	} else {
+		rdb = client
 		log.Println("Redis connected.")
 	}
 }
 
 func initMySQL() {
-	dbConnections = make(map[string]*sql.DB)
 	if appConfig.MdmJdbcURL == "" {
 		log.Println("MySQL skipped.")
 		return
@@ -84,7 +94,7 @@ func initMySQL() {
 				if len(parts) > 1 {
 					hostAndPort, dbNameAndParams := parts[0], parts[1]
 					dbNameFromURL := strings.Split(dbNameAndParams, "?")[0]
-					dsn = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", config["username"], config["password"], hostAndPort, dbNameFromURL)
+					dsn = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true&timeout=2s", config["username"], config["password"], hostAndPort, dbNameFromURL)
 				}
 			}
 			if dsn == "" {
@@ -109,7 +119,9 @@ func initMySQL() {
 				return // 使用 return 代替 continue
 			}
 
+			dbConnMutex.Lock()
 			dbConnections[dbName] = db
+			dbConnMutex.Unlock()
 			log.Printf("MySQL %s connected", dbName)
 		}()
 	}

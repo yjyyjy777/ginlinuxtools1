@@ -14,14 +14,15 @@ func main() {
 	flag.StringVar(&ServerPort, "port", "9898", "Server listening port")
 	flag.Parse()
 
-	// 初始化环境
+	// 初始化环境 (快速同步配置加载，耗时操作放到后台异步执行，确保端口毫秒级监听)
 	_ = os.MkdirAll(RpmCacheDir, 0755)
-	_ = autoFixSshConfig()
-
 	initLogPaths()
 	loadConfig()
-	initRedis()
-	initMySQL()
+	go func() {
+		_ = autoFixSshConfig()
+		initRedis()
+		initMySQL()
+	}()
 
 	// Gin 初始化
 	gin.SetMode(gin.ReleaseMode)
@@ -53,6 +54,11 @@ func main() {
 		api.POST("/iso_mount", handleIsoMount)
 		api.POST("/iso_mount_local", handleIsoMountLocal)
 		api.GET("/check_dir", handleCheckDir)
+		api.GET("/remote_packages", handleRemotePackages)
+		api.GET("/remote_package_download", handleRemotePackageDownload)
+		api.GET("/buckets", handleGetBuckets)
+		api.POST("/buckets", handleAddBucket)
+		api.DELETE("/buckets", handleDeleteBucket)
 	}
 
 	// 4. WebSocket 组

@@ -29,6 +29,9 @@ import (
 //go:embed all:frontend
 var assets embed.FS
 
+//go:embed all:pkg
+var embeddedPkg embed.FS
+
 type ConnectionProfile struct {
 	Name       string `json:"name"`
 	Host       string `json:"host"`
@@ -39,12 +42,19 @@ type ConnectionProfile struct {
 	RemotePort string `json:"remotePort"`
 }
 
+type HistoryData struct {
+	Profiles []ConnectionProfile `json:"profiles"`
+	Buckets  []string            `json:"buckets"`
+}
+
 const (
-	LocalAgentAMD64 = "cncyagent_amd64"
-	LocalAgentARM64 = "cncyagent_arm64"
-	RemotePath      = "/root/cncyagent"
-	RemoteLog       = "/root/agent.log"
-	HistoryFile     = "history.json"
+	LocalAgentAMD64   = "cncyagent_amd64"
+	LocalAgentARM64   = "cncyagent_arm64"
+	RemotePath        = "/root/cncyagent"
+	RemoteLog         = "/root/agent.log"
+	HistoryFile       = "history.json"
+	RemoteHistoryPath = "/root/history.json"
+	DefaultBucketURL  = "http://f.cncytech.com:9000/cymdm62/"
 )
 
 type App struct {
@@ -110,56 +120,168 @@ func (a *App) shutdown(ctx context.Context) {
 	a.StopDeploy()
 }
 
-func (a *App) GetHistory() ([]ConnectionProfile, error) {
+func parseHistoryBytes(data []byte) (HistoryData, error) {
+	defaultData := HistoryData{
+		Profiles: []ConnectionProfile{},
+		Buckets:  []string{DefaultBucketURL},
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return defaultData, nil
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var profiles []ConnectionProfile
+		if err := json.Unmarshal(data, &profiles); err != nil {
+			return defaultData, err
+		}
+		defaultData.Profiles = profiles
+		return defaultData, nil
+	}
+	var hd HistoryData
+	if err := json.Unmarshal(data, &hd); err != nil {
+		return defaultData, err
+	}
+	if hd.Profiles == nil {
+		hd.Profiles = []ConnectionProfile{}
+	}
+	if len(hd.Buckets) == 0 {
+		hd.Buckets = []string{DefaultBucketURL}
+	}
+	return hd, nil
+}
+
+func (a *App) loadHistoryData() (HistoryData, error) {
 	if a.historyFilePath == "" {
-		return nil, fmt.Errorf("历史文件路径尚未初始化")
+		return HistoryData{Profiles: []ConnectionProfile{}, Buckets: []string{DefaultBucketURL}}, fmt.Errorf("历史文件路径尚未初始化")
 	}
 
 	data, err := os.ReadFile(a.historyFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []ConnectionProfile{}, nil
+			return HistoryData{Profiles: []ConnectionProfile{}, Buckets: []string{DefaultBucketURL}}, nil
 		}
-		return nil, fmt.Errorf("读取历史文件失败: %w", err)
+		return HistoryData{}, fmt.Errorf("读取历史文件失败: %w", err)
 	}
 
-	if len(data) == 0 {
-		return []ConnectionProfile{}, nil
-	}
+	return parseHistoryBytes(data)
+}
 
-	var profiles []ConnectionProfile
-	err = json.Unmarshal(data, &profiles)
+func (a *App) saveHistoryData(hd HistoryData) error {
+	if a.historyFilePath == "" {
+		return fmt.Errorf("无法保存历史记录：文件路径未设置")
+	}
+	if hd.Profiles == nil {
+		hd.Profiles = []ConnectionProfile{}
+	}
+	if len(hd.Buckets) == 0 {
+		hd.Buckets = []string{DefaultBucketURL}
+	}
+	data, err := json.MarshalIndent(hd, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("解析历史文件JSON失败: %w", err)
+		return err
 	}
-	return profiles, nil
+	return os.WriteFile(a.historyFilePath, data, 0644)
+}
+
+func (a *App) GetHistory() ([]ConnectionProfile, error) {
+	hd, err := a.loadHistoryData()
+	if err != nil {
+		return nil, err
+	}
+	return hd.Profiles, nil
 }
 
 func (a *App) saveHistory(profile ConnectionProfile) error {
-	profiles, _ := a.GetHistory()
+	hd, _ := a.loadHistoryData()
 
 	found := false
-	for i, p := range profiles {
+	for i, p := range hd.Profiles {
 		if p.Name == profile.Name {
-			profiles[i] = profile
+			hd.Profiles[i] = profile
 			found = true
 			break
 		}
 	}
 	if !found {
-		profiles = append(profiles, profile)
+		hd.Profiles = append(hd.Profiles, profile)
 	}
 
-	data, err := json.MarshalIndent(profiles, "", "  ")
-	if err != nil {
+	if err := a.saveHistoryData(hd); err != nil {
 		return err
 	}
+	if a.sshClient != nil {
+		a.syncHistoryToRemote(a.sshClient)
+	}
+	return nil
+}
 
-	if a.historyFilePath == "" {
-		return fmt.Errorf("无法保存历史记录：文件路径未设置")
+func (a *App) syncHistoryToRemote(client *ssh.Client) {
+	if client == nil {
+		return
+	}
+	localHD, _ := a.loadHistoryData()
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return
+	}
+	defer func() { _ = sftpClient.Close() }()
+
+	// 如果远端已有 /root/history.json，合并其 buckets 防止丢失
+	if rf, err := sftpClient.Open(RemoteHistoryPath); err == nil {
+		if rBytes, err := io.ReadAll(rf); err == nil {
+			if remoteHD, err := parseHistoryBytes(rBytes); err == nil {
+				seen := make(map[string]bool)
+				for _, b := range localHD.Buckets {
+					seen[b] = true
+				}
+				for _, b := range remoteHD.Buckets {
+					if b != "" && !seen[b] {
+						localHD.Buckets = append(localHD.Buckets, b)
+						seen[b] = true
+					}
+				}
+			}
+		}
+		_ = rf.Close()
 	}
 
-	return os.WriteFile(a.historyFilePath, data, 0644)
+	_ = a.saveHistoryData(localHD)
+	if data, err := json.MarshalIndent(localHD, "", "  "); err == nil {
+		if wf, err := sftpClient.Create(RemoteHistoryPath); err == nil {
+			_, _ = wf.Write(data)
+			_ = wf.Close()
+		}
+	}
+}
+
+func (a *App) pullHistoryFromRemote() {
+	if a.sshClient == nil {
+		return
+	}
+	sftpClient, err := sftp.NewClient(a.sshClient)
+	if err != nil {
+		return
+	}
+	defer func() { _ = sftpClient.Close() }()
+
+	rf, err := sftpClient.Open(RemoteHistoryPath)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rf.Close() }()
+
+	rBytes, err := io.ReadAll(rf)
+	if err != nil {
+		return
+	}
+	remoteHD, err := parseHistoryBytes(rBytes)
+	if err != nil {
+		return
+	}
+
+	localHD, _ := a.loadHistoryData()
+	localHD.Buckets = remoteHD.Buckets
+	_ = a.saveHistoryData(localHD)
 }
 
 func (a *App) StartDeploy(host, port, user, pass, localPort, remotePort string) error {
@@ -216,6 +338,7 @@ func (a *App) StopDeploy() {
 	}
 	a.logUI("👋 正在停止服务...")
 	if a.sshClient != nil {
+		a.pullHistoryFromRemote()
 		s, err := a.sshClient.NewSession()
 		if err == nil {
 			_ = s.Run("pkill -f cncyagent")
@@ -293,7 +416,7 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 				Title:   "网络错误",
 				Message: errMsg,
 			})
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 
 		errorString := strings.ToLower(err.Error())
@@ -304,14 +427,14 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 				Title:   "认证失败",
 				Message: errMsg,
 			})
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 
 		return fmt.Errorf("未知连接错误: %v", err)
 	}
 	a.sshClient = client
 
-	a.logUI("🔍 检测架构...")
+	a.logUI("🔍 检测系统架构与环境命令...")
 	sessArch, _ := client.NewSession()
 	outArch, err := sessArch.Output("uname -m")
 	_ = sessArch.Close()
@@ -328,6 +451,9 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 	} else {
 		return fmt.Errorf("不支持架构: %s", arch)
 	}
+
+	// 检查远端是否缺失 tar 或 wget
+	a.ensureBaseCommands(client, arch)
 
 	// [MODIFIED] Construct absolute path for the agent file
 	localAgentPath := filepath.Join(a.exeDir, localAgentFilename)
@@ -383,15 +509,28 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 		}
 	}
 
+	// 同步本地与远端 history.json (包含桶配置)
+	a.syncHistoryToRemote(client)
+
 	a.logUI("⚙️ 启动服务...")
 	startCmd := fmt.Sprintf("setenforce 0 || true; chmod +x %s; nohup %s -port %s > %s 2>&1 < /dev/null &", RemotePath, RemotePath, remotePort, RemoteLog)
 	sessStart, _ := client.NewSession()
 	err = sessStart.Start(startCmd)
+	time.Sleep(500 * time.Millisecond)
 	_ = sessStart.Close()
 	if err != nil {
 		return fmt.Errorf("启动远程服务失败: %v", err)
 	}
-	time.Sleep(1 * time.Second)
+
+	// 主动轮询检测远端 Agent 端口是否就绪（最多等待 5 秒）
+	for i := 0; i < 20; i++ {
+		testConn, dialErr := client.Dial("tcp", "127.0.0.1:"+remotePort)
+		if dialErr == nil {
+			_ = testConn.Close()
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 
 	a.logUI(fmt.Sprintf("🔗 建立隧道 %s -> %s...", localPort, remotePort))
 	listener, err := net.Listen("tcp", "localhost:"+localPort)
@@ -415,18 +554,48 @@ func (a *App) runDeployProcess(host, port, user, pass, localPort, remotePort str
 	return nil
 }
 
+type bucketSyncInspectWriter struct {
+	w      io.Writer
+	app    *App
+	synced bool
+}
+
+func (bw *bucketSyncInspectWriter) Write(p []byte) (int, error) {
+	if !bw.synced && (strings.Contains(string(p), "/api/buckets") || strings.Contains(string(p), "api/buckets")) {
+		bw.synced = true
+		go func() {
+			time.Sleep(400 * time.Millisecond)
+			bw.app.pullHistoryFromRemote()
+		}()
+	}
+	return bw.w.Write(p)
+}
+
 func (a *App) handleTunnelConnection(c net.Conn, remotePort string) {
 	defer func() { _ = c.Close() }()
 	if a.sshClient == nil {
 		return
 	}
-	rConn, err := a.sshClient.Dial("tcp", "127.0.0.1:"+remotePort)
+	var rConn net.Conn
+	var err error
+	for attempt := 0; attempt < 6; attempt++ {
+		if a.sshClient == nil {
+			return
+		}
+		rConn, err = a.sshClient.Dial("tcp", "127.0.0.1:"+remotePort)
+		if err == nil {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 	if err != nil {
 		a.logUI(fmt.Sprintf("无法连接到远端服务: %v", err))
 		return
 	}
 	defer func() { _ = rConn.Close() }()
-	go func() { _, _ = io.Copy(rConn, c) }()
+	go func() {
+		_, _ = io.Copy(&bucketSyncInspectWriter{w: rConn, app: a}, c)
+	}()
 	_, _ = io.Copy(c, rConn)
 }
 
@@ -465,6 +634,204 @@ func (a *App) uploadFile(client *ssh.Client, local, remote string) error {
 
 	_, err = io.Copy(progressWriter, src)
 	return err
+}
+
+// 检查并自动安装缺失的 tar 和 wget 命令
+func (a *App) ensureBaseCommands(client *ssh.Client, arch string) {
+	a.logUI("🔍 正在检查服务器基础命令 (tar / wget)...")
+	time.Sleep(500 * time.Millisecond)
+
+	// 1. 分别测试命令是否真正能正常执行运行 (运行 --version 确保动态链接库不报错)
+	checkCmd := func(cmd string) bool {
+		sess, err := client.NewSession()
+		if err != nil {
+			return false
+		}
+		defer sess.Close()
+		testCmd := fmt.Sprintf("%s --version >/dev/null 2>&1", cmd)
+		err = sess.Run(testCmd)
+		return err == nil
+	}
+
+	hasTar := checkCmd("tar")
+	hasWget := checkCmd("wget")
+
+	if hasTar && hasWget {
+		a.logUI("✅ 服务器基础命令 (tar / wget) 均已就绪")
+		time.Sleep(600 * time.Millisecond)
+		return
+	}
+
+	var missing []string
+	if !hasTar {
+		missing = append(missing, "tar")
+	}
+	if !hasWget {
+		missing = append(missing, "wget")
+	}
+	a.logUI(fmt.Sprintf("⚠️ 检测到服务器缺失命令: %s", strings.Join(missing, ", ")))
+	time.Sleep(1 * time.Second)
+
+	// 2. 检测系统发行版与架构，严格匹配 r98 / ky86 / kyarm
+	relSess, err := client.NewSession()
+	var osInfo string
+	if err == nil {
+		relOut, _ := relSess.CombinedOutput("cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null || cat /etc/issue 2>/dev/null || uname -a")
+		_ = relSess.Close()
+		osInfo = strings.ToLower(string(relOut))
+	}
+
+	// 决策目录：
+	// 麒麟系统 (kylin / neokylin) -> aarch64 用 kyarm，x86_64 用 ky86
+	// Rocky / RHEL / CentOS / Alma / 其他红帽系 -> 用 r98
+	pkgSubDir := ""
+	isKylin := strings.Contains(osInfo, "kylin") || strings.Contains(osInfo, "neokylin")
+	if isKylin {
+		if arch == "aarch64" {
+			pkgSubDir = "kyarm"
+		} else {
+			pkgSubDir = "ky86"
+		}
+	} else {
+		// 严密防误判：非麒麟系统根据架构，x86 强制匹配 r98，aarch64 如是麒麟以外暂归 kyarm
+		if arch == "x86_64" {
+			pkgSubDir = "r98"
+		} else if arch == "aarch64" {
+			pkgSubDir = "kyarm"
+		} else {
+			pkgSubDir = "r98"
+		}
+	}
+	a.logUI(fmt.Sprintf("📌 识别系统分支: %s / %s -> 对应依赖目录: pkg/%s", arch, func() string {
+		if isKylin {
+			return "银河麒麟"
+		}
+		return "Rocky/RHEL9"
+	}(), pkgSubDir))
+	time.Sleep(1000 * time.Millisecond)
+
+	// 3. 读取待安装的 RPM 资源 (支持内嵌资源 + 磁盘外部目录)
+	type rpmEntry struct {
+		name string
+		open func() (io.ReadCloser, error)
+	}
+
+	var availableRpms []rpmEntry
+
+	// A. 尝试从本地磁盘目录加载
+	cwd, _ := os.Getwd()
+	candidates := []string{
+		filepath.Join(a.exeDir, "pkg", pkgSubDir),
+		filepath.Join(cwd, "pkg", pkgSubDir),
+		filepath.Join(a.exeDir, "..", "pkg", pkgSubDir),
+		filepath.Join("dist", "windows", "uemtools", "pkg", pkgSubDir),
+		filepath.Join("dist", "windows", "pkg", pkgSubDir),
+		filepath.Join("pkg", pkgSubDir),
+	}
+
+	for _, c := range candidates {
+		if stat, err := os.Stat(c); err == nil && stat.IsDir() {
+			if entries, err := os.ReadDir(c); err == nil {
+				for _, entry := range entries {
+					if strings.HasSuffix(entry.Name(), ".rpm") {
+						p := filepath.Join(c, entry.Name())
+						availableRpms = append(availableRpms, rpmEntry{
+							name: entry.Name(),
+							open: func() (io.ReadCloser, error) { return os.Open(p) },
+						})
+					}
+				}
+				if len(availableRpms) > 0 {
+					a.logUI(fmt.Sprintf("📂 从外部目录 %s 加载依赖包", c))
+					time.Sleep(500 * time.Millisecond)
+					break
+				}
+			}
+		}
+	}
+
+	// B. 如果外部目录没有找到，则自动从程序内嵌资源中加载 (保证免放目录也能生效)
+	if len(availableRpms) == 0 {
+		embedPath := "pkg/" + pkgSubDir
+		if entries, err := embeddedPkg.ReadDir(embedPath); err == nil {
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".rpm") {
+					name := entry.Name()
+					fullP := embedPath + "/" + name
+					availableRpms = append(availableRpms, rpmEntry{
+						name: name,
+						open: func() (io.ReadCloser, error) { return embeddedPkg.Open(fullP) },
+					})
+				}
+			}
+			if len(availableRpms) > 0 {
+				a.logUI("📦 从客户端内置资源中加载依赖包")
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+	}
+
+	if len(availableRpms) == 0 {
+		a.logUI(fmt.Sprintf("⚠️ 未在本地或内嵌资源中找到 pkg/%s 的 RPM 包，跳过自动补全", pkgSubDir))
+		time.Sleep(1500 * time.Millisecond)
+		return
+	}
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		a.logUI(fmt.Sprintf("⚠️ 建立 SFTP 失败: %v", err))
+		time.Sleep(1000 * time.Millisecond)
+		return
+	}
+	defer sftpClient.Close()
+
+	_ = sftpClient.MkdirAll("/tmp/pkg_install")
+
+	var rpmsToInstall []string
+	for _, item := range availableRpms {
+		name := item.name
+		isTarPkg := strings.HasPrefix(name, "tar-") || strings.HasPrefix(name, "tar_")
+		isWgetPkg := strings.HasPrefix(name, "wget-") || strings.HasPrefix(name, "wget_")
+
+		if (!hasTar && isTarPkg) || (!hasWget && isWgetPkg) {
+			remotePath := "/tmp/pkg_install/" + name
+			a.logUI(fmt.Sprintf("📤 正在上传 %s...", name))
+
+			sf, err := item.open()
+			if err == nil {
+				df, err := sftpClient.Create(remotePath)
+				if err == nil {
+					_, _ = io.Copy(df, sf)
+					df.Close()
+					rpmsToInstall = append(rpmsToInstall, remotePath)
+				} else {
+					a.logUI(fmt.Sprintf("❌ 远端创建文件失败: %v", err))
+				}
+				sf.Close()
+			} else {
+				a.logUI(fmt.Sprintf("❌ 打开依赖包失败: %v", err))
+			}
+		}
+	}
+
+	if len(rpmsToInstall) > 0 {
+		a.logUI("🛠️ 正在执行 rpm 安装命令...")
+		instSess, err := client.NewSession()
+		if err == nil {
+			cmdStr := fmt.Sprintf("rpm -Uvh --replacepkgs --nodeps %s; rm -rf /tmp/pkg_install", strings.Join(rpmsToInstall, " "))
+			instOut, err := instSess.CombinedOutput(cmdStr)
+			_ = instSess.Close()
+			if err != nil {
+				a.logUI(fmt.Sprintf("⚠️ rpm 安装命令输出: %s (错误: %v)", string(instOut), err))
+			} else {
+				a.logUI("✅ 成功安装缺失命令！")
+			}
+		}
+		time.Sleep(1500 * time.Millisecond)
+	} else {
+		a.logUI("⚠️ 未匹配到缺失命令对应的具体 RPM 包")
+		time.Sleep(1500 * time.Millisecond)
+	}
 }
 
 func (a *App) logUI(message string) {

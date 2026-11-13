@@ -30,8 +30,25 @@ echo "  Output: ./$FINAL_DIR/"
 echo "=========================================="
 echo
 
-# --- 1. Clean Up ---
-echo "[1/4] Cleaning up previous build artifacts..."
+# --- 1. Clean Up & Update Version/Date ---
+echo "[1/4] Updating version and build date..."
+CURRENT_DATE=$(date +%Y-%m-%d)
+VERSION_FILE="VERSION"
+PATCH=0
+if [ -f "$VERSION_FILE" ]; then
+    CURRENT_VER=$(cat "$VERSION_FILE" | tr -d '\r\n')
+    if [[ "$CURRENT_VER" =~ ^6\.2\.([0-9]+)$ ]]; then
+        PATCH=$(( ${BASH_REMATCH[1]} + 1 ))
+    fi
+fi
+NEW_VERSION="6.2.$PATCH"
+echo "$NEW_VERSION" > "$VERSION_FILE"
+
+sed -i -E "s|<tr><td><strong>版本</strong></td><td>.*?</td></tr>|<tr><td><strong>版本</strong></td><td>$NEW_VERSION</td></tr>|g" agent/html.go
+sed -i -E "s|<tr><td><strong>更新日期</strong></td><td>.*?</td></tr>|<tr><td><strong>更新日期</strong></td><td>$CURRENT_DATE</td></tr>|g" agent/html.go
+echo "  -> Version bumped to $NEW_VERSION, Date: $CURRENT_DATE"
+
+echo "Cleaning up previous build artifacts..."
 # Remove old messy directories from previous script versions
 rm -rf build/mac build/darwin build/windows
 # Create a fresh, empty destination directory

@@ -1,11 +1,45 @@
-[
-  {
-    "name": "root@172.16.81.5",
-    "host": "172.16.81.5",
-    "port": "22",
-    "user": "root",
-    "password": "Nsky@0!6",
-    "localPort": "9999",
-    "remotePort": "9898"
-  }
-]
+{
+  "profiles": [
+    {
+      "name": "root@172.16.81.5",
+      "host": "172.16.81.5",
+      "port": "22",
+      "user": "root",
+      "password": "Nsky@0!6",
+      "localPort": "9999",
+      "remotePort": "9898"
+    },
+    {
+      "name": "root@172.16.10.190",
+      "host": "172.16.10.190",
+      "port": "22",
+      "user": "root",
+      "password": "10.190@cncy",
+      "localPort": "9999",
+      "remotePort": "9898"
+    },
+    {
+      "name": "root@172.16.50.141",
+      "host": "172.16.50.141",
+      "port": "22",
+      "user": "root",
+      "password": "50.141@cncy",
+      "localPort": "9999",
+      "remotePort": "9898"
+    },
+    {
+      "name": "root@172.16.81.25",
+      "host": "172.16.81.25",
+      "port": "22",
+      "user": "root",
+      "password": "nq1234",
+      "localPort": "9999",
+      "remotePort": "9898"
+    }
+  ],
+  "buckets": [
+    "http://f.cncytech.com:9000/cymdm62/",
+    "http://f.cncytech.com:9001/browser/cymdm61",
+    "http://f.cncytech.com:9001/browser/cnmdm61"
+  ]
+}

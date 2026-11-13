@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -77,14 +78,34 @@ func handleUpload(c *gin.Context) {
 		return
 	}
 
+	uploadType := c.PostForm("upload_type")
+
 	// [MODIFIED] 2. 确定目标目录
-	// 如果是 tar.gz，强制设定为 /root
 	targetDir := c.PostForm("path")
-	isTarGz := strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz")
-	if isTarGz {
+	if uploadType == "update" {
+		if targetDir == "" {
+			targetDir = "/root/uem-update"
+		}
+		// 每次上传更新包，都要把已经存在的 /root/uem-update 备份重命名为 /root/uem-update-<目录修改/创建日期>
+		cleanTarget := filepath.Clean(targetDir)
+		if stat, err := os.Stat(cleanTarget); err == nil && stat.IsDir() {
+			modTimeStr := stat.ModTime().Format("20060102_150405")
+			backupDir := fmt.Sprintf("%s-%s", cleanTarget, modTimeStr)
+			// 如果由于重名等原因存在，增加纳秒避免冲突
+			if _, err := os.Stat(backupDir); err == nil {
+				backupDir = fmt.Sprintf("%s-%s", cleanTarget, time.Now().Format("20060102_150405"))
+			}
+			_ = os.Rename(cleanTarget, backupDir)
+		}
+	} else if uploadType == "install" || uploadType == "pn_install" {
 		targetDir = "/root"
-	} else if targetDir == "" {
-		targetDir = "/root"
+	} else {
+		isTarGz := strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz")
+		if isTarGz {
+			targetDir = "/root"
+		} else if targetDir == "" {
+			targetDir = "/root"
+		}
 	}
 
 	// [MODIFIED] 3. 确保目录存在
@@ -100,23 +121,56 @@ func handleUpload(c *gin.Context) {
 		return
 	}
 
-	// [MODIFIED] 5. 解压文件 (仅针对 .tar.gz)
-	if isTarGz {
+	// [MODIFIED] 5. 解压文件 (针对安装包) 并自动识别解压目录
+	isTarGz := strings.HasSuffix(file.Filename, ".tar.gz") || strings.HasSuffix(file.Filename, ".tgz")
+	shouldExtract := isTarGz && (uploadType == "install" || uploadType == "pn_install")
+	extractedDir := ""
+	if shouldExtract {
 		cmd := exec.Command("tar", "-zxvf", dst, "-C", targetDir)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			// 即使解压失败，也返回详细信息
 			c.JSON(500, gin.H{
-				"message": "文件上传成功，但解压失败",
+				"message": "文件上传成功，但安装包解压失败",
 				"error":   err.Error(),
 				"details": string(output),
 			})
 			return
 		}
+		lines := strings.Split(string(output), "\n")
+		firstTopDir := ""
+		for _, line := range lines {
+			cleanLine := strings.TrimPrefix(strings.TrimSpace(line), "./")
+			if cleanLine == "" {
+				continue
+			}
+			if firstTopDir == "" {
+				seg := strings.Split(cleanLine, "/")[0]
+				if seg != "" {
+					firstTopDir = filepath.Join(targetDir, seg)
+				}
+			}
+			if cleanLine == "install.sh" || strings.HasSuffix(cleanLine, "/install.sh") {
+				relDir := filepath.Dir(cleanLine)
+				if relDir == "." {
+					extractedDir = targetDir
+				} else {
+					extractedDir = filepath.Join(targetDir, relDir)
+				}
+				break
+			}
+		}
+		if extractedDir == "" && firstTopDir != "" {
+			if st, err := os.Stat(firstTopDir); err == nil && st.IsDir() {
+				extractedDir = firstTopDir
+			}
+		}
+		if uploadType == "pn_install" && extractedDir != "" {
+			_ = os.WriteFile("/root/.pn_last_dir", []byte(extractedDir), 0644)
+		}
 	}
 
 	// [MODIFIED] 6. 返回成功 JSON
-	c.JSON(200, gin.H{"message": "上传并处理成功", "path": dst, "dir": targetDir})
+	c.JSON(200, gin.H{"message": "上传并处理成功", "path": dst, "dir": targetDir, "extracted_dir": extractedDir})
 }
 
 func handleUploadAny(c *gin.Context) {
@@ -214,15 +268,28 @@ func handleCheckEnv(c *gin.Context) {
 	res.SecInfo.Firewall = fw
 	res.SecInfo.SshTunnelOk = checkSshConfig()
 
-	// --- UEM 服务状态检查 (最终正确版) ---
-	if _, err := os.Stat("/opt/emm/current"); err == nil {
-		res.UemInfo.Installed = true
-		for _, s := range uemServices {
-			st := "stop"
-			cmd := exec.Command("systemctl", "show", "-p", "ActiveState", "--value", s)
-			output, err := cmd.CombinedOutput()
+	// --- UEM / PN 服务状态检查 (基于 cncymdm / cncypn) ---
+	cncymdmPath := findCmdScript("cncymdm")
+	cncypnPath := findCmdScript("cncypn")
 
-			if err == nil && strings.Contains(string(output), "active") {
+	var targetServices []string
+	if cncymdmPath != "" {
+		res.UemInfo.Installed = true
+		res.UemInfo.ServerType = "uem"
+		targetServices = parseScriptServices(cncymdmPath, []string{"mdm", "base"}, uemServices)
+	} else if cncypnPath != "" {
+		res.UemInfo.Installed = true
+		res.UemInfo.ServerType = "pn"
+		targetServices = parseScriptServices(cncypnPath, []string{"pn_services", "base_services"}, pnServices)
+	} else {
+		res.UemInfo.Installed = false
+		res.UemInfo.ServerType = "none"
+	}
+
+	if res.UemInfo.Installed {
+		for _, s := range targetServices {
+			st := "stop"
+			if err := exec.Command("systemctl", "is-active", "--quiet", s).Run(); err == nil {
 				st = "run"
 			}
 
@@ -236,22 +303,91 @@ func handleCheckEnv(c *gin.Context) {
 	}
 	// --- 检查结束 ---
 
-	// [RESTORED] MinIO check logic restored to populate MinioInfo
-	mClient, err := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
-	if err == nil {
-		exists, _ := mClient.BucketExists(context.Background(), MinioBucket)
-		if exists {
-			res.MinioInfo.BucketExists = true
-			p, _ := mClient.GetBucketPolicy(context.Background(), MinioBucket)
-			if strings.Contains(p, "GetObject") && strings.Contains(p, "*") {
-				res.MinioInfo.Policy = "public"
-			} else {
-				res.MinioInfo.Policy = "private"
+	// MinIO 检测: PN 服务器和没有 minio 服务的系统不检测/不显示
+	if hasMinioService(res.UemInfo.ServerType) {
+		res.MinioInfo.HasService = true
+		mClient, err := minio.New(MinioEndpoint, &minio.Options{Creds: credentials.NewStaticV4(MinioUser, MinioPass, ""), Secure: false})
+		if err == nil {
+			exists, _ := mClient.BucketExists(context.Background(), MinioBucket)
+			if exists {
+				res.MinioInfo.BucketExists = true
+				p, _ := mClient.GetBucketPolicy(context.Background(), MinioBucket)
+				if strings.Contains(p, "GetObject") && strings.Contains(p, "*") {
+					res.MinioInfo.Policy = "public"
+				} else {
+					res.MinioInfo.Policy = "private"
+				}
 			}
 		}
 	}
 
 	c.JSON(200, res)
+}
+
+func findCmdScript(name string) string {
+	candidates := []string{
+		"/usr/bin/" + name,
+		"/usr/local/bin/" + name,
+		"/bin/" + name,
+		"/sbin/" + name,
+	}
+	for _, p := range candidates {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return ""
+}
+
+func parseScriptServices(scriptPath string, varNames []string, fallback []string) []string {
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return fallback
+	}
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	seen := make(map[string]bool)
+	for _, vName := range varNames {
+		prefix := vName + "="
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, prefix) {
+				val := strings.TrimPrefix(trimmed, prefix)
+				val = strings.Trim(val, `"'`)
+				for _, svc := range strings.Fields(val) {
+					if svc != "" && !seen[svc] {
+						seen[svc] = true
+						result = append(result, svc)
+					}
+				}
+				break
+			}
+		}
+	}
+	if len(result) == 0 {
+		return fallback
+	}
+	return result
+}
+
+func hasMinioService(serverType string) bool {
+	if serverType == "pn" {
+		return false
+	}
+	if _, err := os.Stat("/etc/systemd/system/minio.service"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/usr/lib/systemd/system/minio.service"); err == nil {
+		return true
+	}
+	out, err := exec.Command("systemctl", "show", "-p", "LoadState", "--value", "minio").Output()
+	if err == nil && strings.TrimSpace(string(out)) == "loaded" {
+		return true
+	}
+	return false
 }
 
 func handleRestartService(c *gin.Context) {
@@ -323,7 +459,15 @@ func handleFsList(c *gin.Context) {
 
 func handleFsDownload(c *gin.Context) {
 	path := c.Query("path")
-	c.File(path)
+	cleanPath := filepath.Clean(path)
+	info, err := os.Stat(cleanPath)
+	if err != nil || info.IsDir() {
+		c.Status(404)
+		return
+	}
+	fileName := filepath.Base(cleanPath)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	c.File(cleanPath)
 }
 
 // --- 日志 ---
